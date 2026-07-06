@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Nav from "./components/Nav";
 
 export const metadata: Metadata = {
-  title: "Innergy PO → Sage Intacct Exporter",
-  description: "Export Innergy purchase orders to the Sage Intacct AP Bill import format.",
+  title: "Innergy → Sage Intacct Exporter",
+  description:
+    "Export Innergy purchase orders and invoices to the Sage Intacct AP Bill / AR Invoice import formats.",
 };
 
 export default function RootLayout({
@@ -13,7 +15,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Nav />
+        {children}
+      </body>
     </html>
   );
 }

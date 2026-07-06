@@ -33,6 +33,53 @@ body {
   padding: 24px 20px 64px;
 }
 
+/* top tab nav */
+.tabnav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.tabnav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 52px;
+}
+
+.tabnav .brand {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tabnav .tabs {
+  display: flex;
+  gap: 4px;
+  height: 100%;
+}
+
+.tabnav .tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  height: 100%;
+  text-decoration: none;
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+}
+
+.tabnav .tab:hover {
+  color: var(--text);
+}
+
+.tabnav .tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 header.page-header h1 {
   font-size: 20px;
   margin: 0 0 4px;

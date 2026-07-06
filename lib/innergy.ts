@@ -10,6 +10,7 @@
  */
 import "server-only";
 import type { NormalizedPurchaseOrder } from "./sageColumns";
+import type { NormalizedInvoice } from "./arColumns";
 
 const BASE_URL = process.env.INNERGY_BASE_URL || "https://app.innergy.com";
 
@@ -164,4 +165,82 @@ export async function getPurchaseOrder(
     `/api/purchaseOrders/${encodeURIComponent(poNumber)}`
   );
   return normalizePO(payload);
+}
+
+/* ------------------------------------------------------------------ *
+ * Invoices (AR)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Cached map of lower-cased company name -> ExternalIdentifier, built from
+ * /api/companies. Used to resolve a customer's External Id (the Sage customer ID)
+ * from the invoice's customer NAME, since the invoice record has no external id.
+ *
+ * Only names WITH a non-empty ExternalIdentifier are added, so today the map is
+ * empty and CUSTOMER_ID exports blank; once Sage IDs are set on customers in
+ * Innergy, the same lookup starts populating CUSTOMER_ID automatically.
+ */
+let companiesCache: { at: number; map: Map<string, string> } | null = null;
+const COMPANIES_TTL_MS = 5 * 60 * 1000;
+
+async function getCustomerExternalIdMap(): Promise<Map<string, string>> {
+  if (companiesCache && Date.now() - companiesCache.at < COMPANIES_TTL_MS) {
+    return companiesCache.map;
+  }
+  const payload = await innergyGet<any>("/api/companies");
+  const map = new Map<string, string>();
+  for (const c of payload?.Items || []) {
+    const name = cleanStr(c?.Name).toLowerCase();
+    const ext = cleanStr(c?.ExternalIdentifier);
+    if (name && ext) map.set(name, ext);
+  }
+  companiesCache = { at: Date.now(), map };
+  return map;
+}
+
+/**
+ * Map a raw Innergy invoice (from a project group's `Items`) to our normalized
+ * shape. Field names verified against a live `GET /api/invoices` response (2026-07).
+ */
+export function normalizeInvoice(
+  raw: any,
+  project: any,
+  custMap: Map<string, string>
+): NormalizedInvoice {
+  const customerName = cleanStr(raw?.Customer);
+  const workOrderNumbers = Array.isArray(raw?.WorkOrders)
+    ? raw.WorkOrders.map((w: any) => cleanStr(w?.Number)).filter(Boolean)
+    : [];
+
+  return {
+    id: cleanStr(raw?.InvoiceNumber),
+    invoiceNumber: cleanStr(raw?.InvoiceNumber),
+    customerName,
+    customerExternalId: custMap.get(customerName.toLowerCase()) || "",
+    projectName: cleanStr(project?.ProjectName) || undefined,
+    projectNumber: cleanStr(project?.ProjectNumber) || undefined,
+    workOrderNumbers,
+    invoiceAmount: moneyValue(raw?.InvoiceAmount),
+    dueDate: cleanStr(raw?.DueDate),
+    status: cleanStr(raw?.Status),
+  };
+}
+
+export async function listInvoices(): Promise<NormalizedInvoice[]> {
+  // /api/invoices returns { Items: [ { Project, ...totals, Items: [invoice...] } ] }
+  // i.e. invoices are grouped by project; flatten to a single list.
+  const [payload, custMap] = await Promise.all([
+    innergyGet<any>("/api/invoices"),
+    getCustomerExternalIdMap(),
+  ]);
+
+  const groups: any[] = payload?.Items || [];
+  const out: NormalizedInvoice[] = [];
+  for (const group of groups) {
+    const project = group?.Project || {};
+    for (const raw of group?.Items || []) {
+      out.push(normalizeInvoice(raw, project, custMap));
+    }
+  }
+  return out;
 }

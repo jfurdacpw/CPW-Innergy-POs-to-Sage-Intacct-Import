@@ -1,8 +1,13 @@
-# CPW Innergy PO → Sage Intacct AP Bill Exporter
+# CPW Innergy → Sage Intacct Exporter
 
-Internal web app that lists purchase orders pulled live from Innergy and exports a
-**reconciled** PO to an `.xlsx` file matching the Sage Intacct **AP Bill import** template
-(`Accounts Payable bills.xls`). One PO = one bill line.
+Internal web app that lists records pulled live from Innergy and exports them to `.xlsx`
+files matching Sage Intacct import templates. Two tabs:
+
+- **Bills (AP)** — `/` — exports a **reconciled** purchase order to the **AP Bill** template
+  (`Accounts Payable bills.xls`). One PO = one bill line.
+- **Invoices (AR)** — `/invoices` — exports an invoice to the **AR Invoice** template
+  (`Accounts Receivable invoices (Innergy Field Mapping).xls`). One invoice = one line;
+  no status gate (any invoice can be exported).
 
 ## Stack
 
@@ -82,6 +87,43 @@ Tunable constants live at the top of `lib/sageColumns.ts`: `DEFAULT_ACCT_NO` (cu
 Note: several of these fields (vendor external id, contact, terms) can be blank/null on a given
 PO in Innergy — that's real data, not a mapping error. Set the vendor's External Id in Innergy so
 `VENDOR_ID` populates for the Sage import.
+
+## Invoices (AR) tab
+
+`GET /api/invoices` → Innergy `GET /api/invoices`. `lib/arColumns.ts` holds the exact 54-column
+AR Invoice header row and the invoice→row mapping (`lib/arColumns.test.ts` guards the headers).
+No status gate — any invoice can be exported.
+
+Innergy invoice schema notes (verified live, 2026-07):
+
+- `/api/invoices` returns invoices **grouped by project**: `{ Items: [ { Project, ...totals,
+  Items: [invoice...] } ] }`. `listInvoices` flattens the inner `Items` to one list.
+- Invoices are tied to **WorkOrders/Projects, not POs** (`BillingType: "WO"`).
+- The invoice record carries the customer **name** only, not an external id. `CUSTOMER_ID` is
+  resolved by matching that name against `/api/companies` → `ExternalIdentifier` (cached 5 min).
+  All external ids are currently null, so `CUSTOMER_ID` exports blank; once the Sage customer ID
+  is set on each customer's External Id field in Innergy, it links automatically.
+
+Mapped columns:
+
+| AR column | Source |
+|---|---|
+| BATCH_TITLE | batch title from the export dialog |
+| INVOICE_NO | `InvoiceNumber` |
+| PO_NO | Work Order number(s), comma-joined |
+| CUSTOMER_ID | customer External Id (blank until set in Innergy — see above) |
+| CREATED_DATE / EXCH_RATE_DATE | today (`MM/DD/YYYY`) |
+| DUE_DATE | Innergy `DueDate` (`MM/DD/YYYY`) |
+| TOTAL_DUE / AMOUNT | `InvoiceAmount` |
+| LINE_NO | `1` |
+| MEMO | `Innergy Export` |
+| ACCT_NO | `32000` (kept per the sheet — see note) |
+
+`TERM_NAME`, `ACTION`, and all rev-rec / subtotal / revenue-account columns export blank
+(no Innergy equivalent; `ACTION` blank → Sage defaults to Submit). **Note:** `ACCT_NO = 32000`
+is your AP account, carried over from the bills sheet; an AR invoice line usually posts to a
+**revenue** account — revisit before importing real invoices. `DEFAULT_ACCT_NO` in
+`lib/sageColumns.ts` is the shared source of truth for both tabs.
 
 ## Deploy to Vercel
 
