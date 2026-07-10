@@ -74,7 +74,11 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("AMOUNT"), "3070.02");
   assert.equal(col("LINE_NO"), "1");
   assert.equal(col("MEMO"), "Innergy Export");
-  assert.equal(col("ACCT_NO"), "32000");
+  // ACCT_NO (revenue) is pending the 5,200-series furniture/millwork decision;
+  // it must NOT be the AP account (32000). ARINVOICEITEM_ARACCOUNT is the AR control account.
+  assert.equal(col("ACCT_NO"), "");
+  assert.notEqual(col("ACCT_NO"), "32000");
+  assert.equal(col("ARINVOICEITEM_ARACCOUNT"), "12100");
   // Per the AR sheet, these stay blank.
   assert.equal(col("TERM_NAME"), "");
   assert.equal(col("ACTION"), "");

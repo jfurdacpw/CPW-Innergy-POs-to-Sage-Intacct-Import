@@ -6,12 +6,27 @@
  *
  * Source template: "Accounts Receivable invoices (Innergy Field Mapping).xls"
  */
-import {
-  formatDateMMDDYYYY,
-  formatAmount,
-  DEFAULT_ACCT_NO,
-  EXPORT_MEMO,
-} from "./sageColumns";
+import { formatDateMMDDYYYY, formatAmount, EXPORT_MEMO } from "./sageColumns";
+
+/**
+ * AR-specific GL accounts. These are deliberately NOT shared with the AP side:
+ * an AR invoice must never post to the AP liability account (32000). The app
+ * previously reused the AP `DEFAULT_ACCT_NO` here, which booked revenue into
+ * accounts payable — see RKL meeting 2026-07-09.
+ *
+ * ARINVOICEITEM_ARACCOUNT is the AR control account (the debit).
+ * Confirmed in the meeting: "AR account is 12,100".
+ */
+export const AR_CONTROL_ACCT_NO = "12100";
+
+/**
+ * ACCT_NO is the revenue line account (the credit) — a 5,200-series account.
+ * PENDING: the meeting split this into furniture-sales vs. millwork-sales
+ * (5,200-series), and which one applies depends on the unresolved
+ * furniture/millwork department decision. Left blank until that is finalized;
+ * set this one constant once the revenue account is chosen.
+ */
+export const AR_REVENUE_ACCT_NO = "";
 
 export const AR_HEADERS = [
   "DONOTIMPORT",
@@ -124,7 +139,8 @@ export interface BuildInvoiceRowOptions {
  * - CUSTOMER_ID   <- customer External Id (blank until set in Innergy)
  * - DUE_DATE      <- Innergy DueDate (invoices carry a real due date; no terms field)
  * - TOTAL_DUE/AMOUNT <- InvoiceAmount
- * - ACCT_NO       <- 32000 (kept per the sheet)
+ * - ACCT_NO       <- AR_REVENUE_ACCT_NO (5,200-series revenue; pending, see const)
+ * - ARINVOICEITEM_ARACCOUNT <- 12100 (AR control account)
  * - MEMO          <- "Innergy Export"
  * - ACTION        <- blank (the AR sheet marks it N/A; Sage defaults to Submit)
  * - TERM_NAME     <- blank (Innergy invoices have no payment-terms field)
@@ -149,7 +165,8 @@ export function buildInvoiceRow(
     EXCH_RATE_DATE: dateStr,
     LINE_NO: "1",
     MEMO: EXPORT_MEMO,
-    ACCT_NO: DEFAULT_ACCT_NO,
+    ACCT_NO: AR_REVENUE_ACCT_NO,
+    ARINVOICEITEM_ARACCOUNT: AR_CONTROL_ACCT_NO,
     AMOUNT: amount,
   };
 
