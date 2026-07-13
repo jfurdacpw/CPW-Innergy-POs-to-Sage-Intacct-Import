@@ -114,16 +114,34 @@ Mapped columns:
 | CUSTOMER_ID | customer External Id (blank until set in Innergy — see above) |
 | CREATED_DATE / EXCH_RATE_DATE | today (`MM/DD/YYYY`) |
 | DUE_DATE | Innergy `DueDate` (`MM/DD/YYYY`) |
-| TOTAL_DUE / AMOUNT | `InvoiceAmount` |
-| LINE_NO | `1` |
-| MEMO | `Innergy Export` |
-| ACCT_NO | `32000` (kept per the sheet — see note) |
+| TOTAL_DUE | `InvoiceAmount` (total incl. tax) |
+| AMOUNT (revenue line) | `InvoicePreTaxAmount` (pre-tax) |
+| LINE_NO | `1` revenue line, `2` tax line |
+| MEMO | `Innergy Export` (revenue), `Sales Tax` (tax line) |
+| ARINVOICEITEM_ARACCOUNT | `12100` — AR control account (`AR_CONTROL_ACCT_NO`) |
+| ACCT_NO | **blank** revenue (`AR_REVENUE_ACCT_NO`); `33500` on the tax line |
 
-`TERM_NAME`, `ACTION`, and all rev-rec / subtotal / revenue-account columns export blank
-(no Innergy equivalent; `ACTION` blank → Sage defaults to Submit). **Note:** `ACCT_NO = 32000`
-is your AP account, carried over from the bills sheet; an AR invoice line usually posts to a
-**revenue** account — revisit before importing real invoices. `DEFAULT_ACCT_NO` in
-`lib/sageColumns.ts` is the shared source of truth for both tabs.
+`TERM_NAME`, `ACTION`, and all rev-rec / subtotal columns export blank (no Innergy
+equivalent; `ACTION` blank → Sage defaults to Submit). The two AR GL accounts live in
+`lib/arColumns.ts` and are deliberately **not** shared with the AP side:
+
+- `ARINVOICEITEM_ARACCOUNT = "12100"` — the Accounts Receivable control account (the debit),
+  confirmed from RKL's manual example (invoice IN-1002).
+- `ACCT_NO` (the revenue credit) is **left blank on purpose.** It must never be the AP account
+  (32000). The real value is a 5,200-series revenue account (e.g. 50200 Furniture Sales vs a
+  Millwork account) that depends on the unresolved furniture/millwork split — set
+  `AR_REVENUE_ACCT_NO` once that's decided. The export dialog warns while it's blank.
+
+**Sales tax:** taxable invoices export **two lines** — a pre-tax revenue line (line 1) and a
+sales-tax line (line 2, `AMOUNT = InvoiceSalesTax`) posting to `AR_SALES_TAX_ACCT_NO` (`33500`,
+from RKL's IN-1002 example). Untaxed invoices stay a single line. Tax is written as a plain GL
+line, **not** via the template's `SUBTOTAL="T"` flag — that flag requires Account Labels, which
+aren't mapped; the GL effect is identical (AR debit = revenue + tax). Verify against a Sage test
+import, and confirm `33500` applies to all entities.
+
+**Not yet mapped (needs setup in Innergy / a decision):** `DEPT_ID` (Furniture vs Millwork),
+`LOCATION_ID` (entity/facility, e.g. `20-PA`), and `ARINVOICEITEM_PROJECTID` (Sage project IDs).
+See the field-mapping reference for the full picture.
 
 ## Deploy to Vercel
 

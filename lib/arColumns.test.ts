@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   AR_HEADERS,
   buildInvoiceRow,
+  buildInvoiceRows,
   isoToMMDDYYYY,
   NormalizedInvoice,
 } from "./arColumns";
@@ -85,4 +86,48 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("REVENUE_ACCOUNT"), "");
   assert.equal(col("SUBTOTAL"), "");
   assert.equal(col("DONOTIMPORT"), "");
+});
+
+const taxableInvoice: NormalizedInvoice = {
+  id: "INV-26-100001",
+  invoiceNumber: "INV-26-100001",
+  customerName: "Sullivan",
+  customerExternalId: "C-00005",
+  workOrderNumbers: ["P-26-1060-002p"],
+  invoiceAmount: 1378, // total incl. tax
+  preTaxAmount: 1300,
+  salesTax: 78,
+  dueDate: "2026-07-19",
+  status: "Pending",
+};
+
+test("buildInvoiceRows splits sales tax onto a second line", () => {
+  const rows = buildInvoiceRows(taxableInvoice, {
+    batchTitle: "b",
+    exportDate: new Date(2026, 6, 6),
+  });
+  const col = (r: string[], name: string) => r[AR_HEADERS.indexOf(name as any)];
+
+  assert.equal(rows.length, 2);
+  // Revenue line: pre-tax amount, revenue account (pending → blank), line 1.
+  assert.equal(col(rows[0], "LINE_NO"), "1");
+  assert.equal(col(rows[0], "AMOUNT"), "1300.00");
+  assert.equal(col(rows[0], "ACCT_NO"), "");
+  // Tax line: tax amount to 33500, line 2, header repeated.
+  assert.equal(col(rows[1], "LINE_NO"), "2");
+  assert.equal(col(rows[1], "AMOUNT"), "78.00");
+  assert.equal(col(rows[1], "ACCT_NO"), "33500");
+  assert.equal(col(rows[1], "INVOICE_NO"), "INV-26-100001");
+  assert.equal(col(rows[1], "ARINVOICEITEM_ARACCOUNT"), "12100");
+  // TOTAL_DUE stays the full invoice total on both lines.
+  assert.equal(col(rows[0], "TOTAL_DUE"), "1378.00");
+  assert.equal(col(rows[1], "TOTAL_DUE"), "1378.00");
+});
+
+test("buildInvoiceRows is a single line when there is no tax", () => {
+  const rows = buildInvoiceRows(
+    { ...taxableInvoice, invoiceAmount: 1000, preTaxAmount: 1000, salesTax: 0 },
+    { batchTitle: "b" }
+  );
+  assert.equal(rows.length, 1);
 });

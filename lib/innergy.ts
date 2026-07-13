@@ -221,6 +221,8 @@ export function normalizeInvoice(
     projectNumber: cleanStr(project?.ProjectNumber) || undefined,
     workOrderNumbers,
     invoiceAmount: moneyValue(raw?.InvoiceAmount),
+    preTaxAmount: moneyValue(raw?.InvoicePreTaxAmount),
+    salesTax: moneyValue(raw?.InvoiceSalesTax),
     dueDate: cleanStr(raw?.DueDate),
     status: cleanStr(raw?.Status),
   };

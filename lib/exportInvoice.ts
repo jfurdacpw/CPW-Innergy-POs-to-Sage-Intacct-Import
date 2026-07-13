@@ -4,18 +4,18 @@
  */
 import {
   AR_HEADERS,
-  buildInvoiceRow,
+  buildInvoiceRows,
   NormalizedInvoice,
   BuildInvoiceRowOptions,
 } from "./arColumns";
 import { buildSheetBlob, downloadBlob } from "./exportWorkbook";
 
-/** Build an .xlsx Blob for one invoice (header row + a single data row). */
+/** Build an .xlsx Blob for one invoice (header row + one or more data rows). */
 export function buildInvoiceWorkbookBlob(
   inv: NormalizedInvoice,
   opts: BuildInvoiceRowOptions
 ): Blob {
-  return buildSheetBlob(AR_HEADERS, [buildInvoiceRow(inv, opts)]);
+  return buildSheetBlob(AR_HEADERS, buildInvoiceRows(inv, opts));
 }
 
 /** Safe filename for an invoice export. */

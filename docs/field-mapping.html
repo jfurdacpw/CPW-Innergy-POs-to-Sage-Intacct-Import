@@ -1,0 +1,275 @@
+<title>Innergy → Sage Intacct Field Mapping</title>
+<style>
+  :root {
+    --ground: #f6f7fa;
+    --surface: #ffffff;
+    --ink: #1a2233;
+    --muted: #667085;
+    --faint: #98a2b3;
+    --border: #e4e7ec;
+    --border-soft: #eef0f4;
+    --ap: #4338ca;      /* indigo — AP Bills */
+    --ap-soft: #eef2ff;
+    --ar: #0e7490;      /* teal — AR Invoices */
+    --ar-soft: #ecfeff;
+    --data: #16a34a;    --data-bg: #e9f7ee;
+    --date: #0284c7;    --date-bg: #e6f4fb;
+    --fixed: #475569;   --fixed-bg: #eef1f5;
+    --later: #b45309;   --later-bg: #fdf1e3;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 72px; }
+  header.masthead { margin-bottom: 28px; }
+  .eyebrow { font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
+  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 10px; text-wrap: balance; letter-spacing: -0.01em; }
+  .lede { margin: 0; color: var(--muted); max-width: 62ch; font-size: 15px; }
+  .lede code { font-family: var(--mono); font-size: 12.5px; background: #fff; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+    margin: 22px 0 30px; padding: 14px 18px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px;
+  }
+  .legend .lg-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--faint); font-weight: 700; margin-right: 4px; }
+  .key { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink); }
+  .dot { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .dot.data { background: var(--data); } .dot.date { background: var(--date); }
+  .dot.fixed { background: var(--fixed); } .dot.later { background: var(--later); }
+  .dot.blank { background: #fff; border: 1.5px solid var(--border); }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; align-items: start; }
+  @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .card-head { padding: 18px 20px 16px; border-bottom: 1px solid var(--border); border-top: 3px solid var(--accent, var(--ap)); }
+  .card.ap { --accent: var(--ap); --accent-soft: var(--ap-soft); }
+  .card.ar { --accent: var(--ar); --accent-soft: var(--ar-soft); }
+  .card-head .tag { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); padding: 3px 9px; border-radius: 999px; }
+  .card-head h2 { font-size: 18px; margin: 10px 0 3px; letter-spacing: -0.01em; }
+  .card-head .tmpl { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0; }
+  .counts { display: flex; gap: 18px; margin-top: 14px; font-size: 13px; }
+  .counts b { font-size: 17px; font-variant-numeric: tabular-nums; display: block; color: var(--ink); }
+  .counts span { color: var(--muted); }
+  .section-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--faint); font-weight: 700; padding: 16px 20px 6px; }
+  table { width: 100%; border-collapse: collapse; }
+  tbody tr { border-top: 1px solid var(--border-soft); }
+  tbody tr:first-child { border-top: none; }
+  td { padding: 9px 10px; vertical-align: middle; }
+  td.field { padding-left: 20px; width: 46%; }
+  .field code { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--ink); border-left: 3px solid var(--fixed); padding-left: 9px; display: inline-block; line-height: 1.3; }
+  td.arrow { color: var(--faint); width: 16px; text-align: center; font-size: 13px; }
+  td.src { color: var(--ink); font-size: 13.5px; padding-right: 20px; }
+  td.src .note { display: block; font-size: 11.5px; color: var(--later); margin-top: 1px; }
+  tr.data  .field code { border-color: var(--data); }
+  tr.date  .field code { border-color: var(--date); }
+  tr.fixed .field code { border-color: var(--fixed); }
+  tr.later .field code { border-color: var(--later); }
+  tr.later td.src { color: var(--later); font-weight: 500; }
+  .blanks { padding: 14px 20px 20px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--ground); border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; }
+  .chip.nomatch { color: var(--later); background: var(--later-bg); border-color: #f2d9b8; }
+  .blanks .sub { font-size: 12px; color: var(--muted); margin: 14px 0 0; }
+  .blanks .sub b { color: var(--later); font-weight: 600; }
+  .notes { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; }
+  .notes h3 { margin: 0 0 12px; font-size: 15px; }
+  .notes ul { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 11px; }
+  .notes li { display: flex; gap: 11px; font-size: 13.5px; color: var(--ink); align-items: flex-start; }
+  .notes li .lbl { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--later); background: var(--later-bg); border-radius: 5px; padding: 2px 7px; flex: none; margin-top: 1px; }
+  .notes li .lbl.info { color: var(--date); background: var(--date-bg); }
+  .notes li span { color: var(--muted); }
+  .notes li span b { color: var(--ink); font-weight: 600; }
+  footer.foot { margin-top: 26px; font-size: 12px; color: var(--faint); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  footer.foot code { font-family: var(--mono); }
+  .needs { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; }
+  .needs h3 { margin: 0 0 4px; font-size: 15px; }
+  .needs .intro { margin: 0 0 16px; color: var(--muted); font-size: 13.5px; max-width: 92ch; }
+  .needs .scroll { overflow-x: auto; }
+  .needs table { width: 100%; border-collapse: collapse; }
+  .needs thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); font-weight: 700; padding: 0 12px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .needs tbody td { padding: 10px 12px; font-size: 13px; border-top: 1px solid var(--border-soft); vertical-align: top; color: var(--ink); }
+  .needs tbody tr:first-child td { border-top: none; }
+  .needs .fld { font-family: var(--mono); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .needs .where { color: var(--muted); white-space: nowrap; font-size: 12px; }
+  .needs .idneed { color: var(--later); font-weight: 600; white-space: nowrap; }
+  .needs code { font-family: var(--mono); font-size: 11.5px; background: var(--ground); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  @media print { body { background: #fff; } .card, .notes, .needs, .legend { break-inside: avoid; } }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Field Mapping Reference</p>
+    <h1>Innergy → Sage Intacct export mapping</h1>
+    <p class="lede">
+      What each column in the exported spreadsheets is filled with. The exporter writes
+      the header row plus <strong>one line per record</strong>; every column not listed as
+      mapped is left empty (Sage ignores empty optional columns on import).
+    </p>
+  </header>
+
+  <div class="legend">
+    <span class="lg-title">Legend</span>
+    <span class="key"><span class="dot data"></span> Live Innergy field</span>
+    <span class="key"><span class="dot date"></span> Export date (today)</span>
+    <span class="key"><span class="dot fixed"></span> Fixed / entered value</span>
+    <span class="key"><span class="dot later"></span> Pending / blank until configured</span>
+    <span class="key"><span class="dot blank"></span> Exported blank</span>
+  </div>
+
+  <div class="cards">
+
+    <!-- ================= AP BILLS ================= -->
+    <section class="card ap">
+      <div class="card-head">
+        <span class="tag">Bills · Accounts Payable</span>
+        <h2>Purchase Order → AP Bill</h2>
+        <p class="tmpl">Accounts Payable bills.xls · 52 columns</p>
+        <div class="counts">
+          <span><b>14</b> mapped</span>
+          <span><b>38</b> blank</span>
+          <span><b>1</b> per PO</span>
+        </div>
+      </div>
+
+      <p class="section-label">Mapped fields</p>
+      <table>
+        <tbody>
+          <tr class="fixed"><td class="field"><code>BATCH_TITLE</code></td><td class="arrow">←</td><td class="src">Batch title (entered at export)</td></tr>
+          <tr class="data"><td class="field"><code>BILL_NO</code></td><td class="arrow">←</td><td class="src">PO number</td></tr>
+          <tr class="data"><td class="field"><code>PO_NO</code></td><td class="arrow">←</td><td class="src">PO number</td></tr>
+          <tr class="later"><td class="field"><code>VENDOR_ID</code></td><td class="arrow">←</td><td class="src">Vendor External Id<span class="note">blank until set on the vendor in Innergy</span></td></tr>
+          <tr class="data"><td class="field"><code>PAYTO</code></td><td class="arrow">←</td><td class="src">Vendor contact</td></tr>
+          <tr class="date"><td class="field"><code>CREATED_DATE</code></td><td class="arrow">←</td><td class="src">Export date (today)</td></tr>
+          <tr class="data"><td class="field"><code>TOTAL_DUE</code></td><td class="arrow">←</td><td class="src">Received Total Cost</td></tr>
+          <tr class="data"><td class="field"><code>TERM_NAME</code></td><td class="arrow">←</td><td class="src">Payment Terms</td></tr>
+          <tr class="date"><td class="field"><code>EXCH_RATE_DATE</code></td><td class="arrow">←</td><td class="src">Export date (today)</td></tr>
+          <tr class="fixed"><td class="field"><code>LINE_NO</code></td><td class="arrow">←</td><td class="src">1</td></tr>
+          <tr class="fixed"><td class="field"><code>MEMO</code></td><td class="arrow">←</td><td class="src">“Innergy Export”</td></tr>
+          <tr class="fixed"><td class="field"><code>ACCT_NO</code></td><td class="arrow">←</td><td class="src">32000<span class="note">⚠ AP account — confirm before importing</span></td></tr>
+          <tr class="data"><td class="field"><code>AMOUNT</code></td><td class="arrow">←</td><td class="src">Received Total Cost</td></tr>
+          <tr class="fixed"><td class="field"><code>ACTION</code></td><td class="arrow">←</td><td class="src">“Submit”</td></tr>
+        </tbody>
+      </table>
+
+      <div class="blanks">
+        <p class="section-label" style="padding:0 0 2px;">Exported blank</p>
+        <div class="chips">
+          <span class="chip">DONOTIMPORT</span><span class="chip">RETURNTO</span><span class="chip">POSTING_DATE</span><span class="chip">DUE_DATE</span><span class="chip">TOTAL_PAID</span><span class="chip">PAID_DATE</span><span class="chip">DESCRIPTION</span><span class="chip">BASECURR</span><span class="chip">CURRENCY</span><span class="chip">EXCH_RATE_TYPE_ID</span><span class="chip">EXCHANGE_RATE</span><span class="chip">ACCT_LABEL</span><span class="chip">LOCATION_ID</span><span class="chip">DEPT_ID</span><span class="chip">ALLOCATION_ID</span><span class="chip">APBILLITEM_APACCOUNT</span><span class="chip">SUPDOCID</span><span class="chip">BILLABLE</span><span class="chip">BILLED</span><span class="chip">NAMEOFACQUIREDASSET</span><span class="chip">SELECTEDASSETMODE</span><span class="chip">ASSETQUANTITY</span><span class="chip">INCLUDETAXINASSETCOST</span><span class="chip">CLASSIFICATIONID</span><span class="chip">AMORTIZATIONTEMPLATEID</span><span class="chip">AMORTIZATIONSTARTDATE</span><span class="chip">AMORTIZATIONENDDATE</span><span class="chip">INVOICE_TYPE</span><span class="chip">INVOICE_MODE</span><span class="chip">APBILLITEM_CLASSID</span><span class="chip">APBILLITEM_CUSTOMERID</span><span class="chip">APBILLITEM_VENDORID</span><span class="chip">APBILLITEM_EMPLOYEEID</span><span class="chip">APBILLITEM_ITEMID</span><span class="chip">APBILLITEM_PROJECTID</span><span class="chip">APBILLITEM_WAREHOUSEID</span><span class="chip">APBILLITEM_ASSETID</span><span class="chip">APBILLITEM_CONTRACTID</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= AR INVOICES ================= -->
+    <section class="card ar">
+      <div class="card-head">
+        <span class="tag">Invoices · Accounts Receivable</span>
+        <h2>Invoice → AR Invoice</h2>
+        <p class="tmpl">Accounts Receivable invoices.xls · 54 columns</p>
+        <div class="counts">
+          <span><b>13</b> mapped</span>
+          <span><b>41</b> blank</span>
+          <span><b>1</b> per invoice</span>
+        </div>
+      </div>
+
+      <p class="section-label">Mapped fields</p>
+      <table>
+        <tbody>
+          <tr class="fixed"><td class="field"><code>BATCH_TITLE</code></td><td class="arrow">←</td><td class="src">Batch title (entered at export)</td></tr>
+          <tr class="data"><td class="field"><code>INVOICE_NO</code></td><td class="arrow">←</td><td class="src">Invoice number</td></tr>
+          <tr class="data"><td class="field"><code>PO_NO</code></td><td class="arrow">←</td><td class="src">Work Order number(s)</td></tr>
+          <tr class="later"><td class="field"><code>CUSTOMER_ID</code></td><td class="arrow">←</td><td class="src">Customer External Id<span class="note">blank until Sage ID set on the customer in Innergy</span></td></tr>
+          <tr class="date"><td class="field"><code>CREATED_DATE</code></td><td class="arrow">←</td><td class="src">Export date (today)</td></tr>
+          <tr class="data"><td class="field"><code>DUE_DATE</code></td><td class="arrow">←</td><td class="src">Innergy Due Date</td></tr>
+          <tr class="data"><td class="field"><code>TOTAL_DUE</code></td><td class="arrow">←</td><td class="src">Invoice Amount</td></tr>
+          <tr class="date"><td class="field"><code>EXCH_RATE_DATE</code></td><td class="arrow">←</td><td class="src">Export date (today)</td></tr>
+          <tr class="fixed"><td class="field"><code>LINE_NO</code></td><td class="arrow">←</td><td class="src">1</td></tr>
+          <tr class="fixed"><td class="field"><code>MEMO</code></td><td class="arrow">←</td><td class="src">“Innergy Export”</td></tr>
+          <tr class="fixed"><td class="field"><code>ARINVOICEITEM_ARACCOUNT</code></td><td class="arrow">←</td><td class="src">12100 · Accounts Receivable</td></tr>
+          <tr class="later"><td class="field"><code>ACCT_NO</code></td><td class="arrow">←</td><td class="src">Revenue account — pending<span class="note">5,200-series furniture/millwork decision (never 32000)</span></td></tr>
+          <tr class="data"><td class="field"><code>AMOUNT</code></td><td class="arrow">←</td><td class="src">Pre-tax amount<span class="note">sales tax posts on a separate line 2 → 33500</span></td></tr>
+        </tbody>
+      </table>
+
+      <div class="blanks">
+        <p class="section-label" style="padding:0 0 2px;">Exported blank</p>
+        <div class="chips">
+          <span class="chip">DONOTIMPORT</span><span class="chip">POSTING_DATE</span><span class="chip">TOTAL_PAID</span><span class="chip">PAID_DATE</span><span class="chip">TERM_NAME</span><span class="chip">DESCRIPTION</span><span class="chip">BASECURR</span><span class="chip">CURRENCY</span><span class="chip">EXCH_RATE_TYPE_ID</span><span class="chip">EXCHANGE_RATE</span><span class="chip">ACCT_LABEL</span><span class="chip">LOCATION_ID</span><span class="chip">DEPT_ID</span><span class="chip">ALLOCATION_ID</span><span class="chip nomatch">SUBTOTAL</span><span class="chip nomatch">REVREC_TEMPLATE</span><span class="chip">REVREC_STARTDATE</span><span class="chip nomatch">DEFERREDREV_ACCOUNT</span><span class="chip nomatch">REVREC_JOURNAL</span><span class="chip nomatch">REVREC_SCHEDULE_LINE_NO</span><span class="chip nomatch">REVENUE_ACCOUNT</span><span class="chip nomatch">REVREC_POSTINGDATE</span><span class="chip nomatch">REVREC_AMOUNT</span><span class="chip">ACTION</span><span class="chip">SUPDOCID</span><span class="chip">BILLTO</span><span class="chip">SHIPTO</span><span class="chip">AMORTIZATIONTEMPLATEID</span><span class="chip">AMORTIZATIONSTARTDATE</span><span class="chip">AMORTIZATIONENDDATE</span><span class="chip">REVREC_ENDDATE</span><span class="chip">INVOICE_TYPE</span><span class="chip">INVOICE_MODE</span><span class="chip">ARINVOICEITEM_PROJECTID</span><span class="chip">ARINVOICEITEM_CUSTOMERID</span><span class="chip">ARINVOICEITEM_VENDORID</span><span class="chip">ARINVOICEITEM_EMPLOYEEID</span><span class="chip">ARINVOICEITEM_ITEMID</span><span class="chip">ARINVOICEITEM_CLASSID</span><span class="chip">ARINVOICEITEM_TASKID</span><span class="chip">ARINVOICEITEM_COSTTYPEID</span>
+        </div>
+        <p class="sub"><b>Amber chips</b> are the revenue-recognition / subtotal columns — reviewed, no Innergy equivalent, intentionally left blank.</p>
+      </div>
+    </section>
+
+  </div>
+
+  <section class="needs">
+    <h3>Blocked on a Sage ID</h3>
+    <p class="intro">
+      These columns stay blank until the matching Sage identifier is available in Innergy —
+      either set on a record’s External Id, or mapped somewhere the export can read. None of
+      these are code problems: each is waiting on an ID or a decision, then it’s a small change.
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Field</th><th>Export</th><th>Sage ID needed</th><th>How it gets unlocked</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="fld">CUSTOMER_ID</td><td class="where">AR</td>
+            <td class="idneed">Customer ID</td>
+            <td>Put the Sage customer ID in each customer’s <b>External Id</b> field in Innergy — the export links it by name automatically.</td>
+          </tr>
+          <tr>
+            <td class="fld">ARINVOICEITEM_CUSTOMERID</td><td class="where">AR</td>
+            <td class="idneed">Customer ID</td>
+            <td>Same customer link as CUSTOMER_ID, applied to the line’s customer dimension.</td>
+          </tr>
+          <tr>
+            <td class="fld">VENDOR_ID</td><td class="where">AP</td>
+            <td class="idneed">Vendor ID</td>
+            <td>Put the Sage vendor ID in each vendor’s <b>External Id</b> field in Innergy.</td>
+          </tr>
+          <tr>
+            <td class="fld">DEPT_ID</td><td class="where">AR + AP</td>
+            <td class="idneed">Department ID</td>
+            <td>Map Innergy → Sage departments (e.g. Furniture, Millwork) somewhere the export can read.</td>
+          </tr>
+          <tr>
+            <td class="fld">LOCATION_ID</td><td class="where">AR + AP</td>
+            <td class="idneed">Location ID</td>
+            <td>Map the Innergy facility → Sage location / entity (e.g. <code>20-PA</code>).</td>
+          </tr>
+          <tr>
+            <td class="fld">ARINVOICEITEM_PROJECTID</td><td class="where">AR</td>
+            <td class="idneed">Project ID</td>
+            <td>Get Sage project IDs onto the Innergy projects / work orders they correspond to.</td>
+          </tr>
+          <tr>
+            <td class="fld">ACCT_NO <span style="font-weight:400;color:var(--muted)">(revenue)</span></td><td class="where">AR</td>
+            <td class="idneed">GL revenue account</td>
+            <td>Decide the 5,200-series account (furniture vs millwork), then set <code>AR_REVENUE_ACCT_NO</code>. Must never be 32000 (AP).</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="notes">
+    <h3>Things to know before importing</h3>
+    <ul>
+      <li><span class="lbl">ACCT_NO (AR)</span><span><b>Revenue account is still blank.</b> RKL’s manual example posts revenue to a 5,200-series account (e.g. 50200 Furniture Sales), but which one depends on the unresolved furniture-vs-millwork split. It must never be 32000 (AP). The export warns until it’s set.</span></li>
+      <li><span class="lbl">AR / AP acct</span><span><b>AR posts to 12100</b> (Accounts Receivable control) — set from RKL’s example. Bills still use <b>32000</b> for the AP line; confirm that value too.</span></li>
+      <li><span class="lbl">VENDOR_ID / CUSTOMER_ID</span><span><b>Blank until configured.</b> Set the Sage vendor/customer ID on the record’s External Id field in Innergy; it then flows into the export automatically.</span></li>
+      <li><span class="lbl info">SALES TAX</span><span><b>Handled.</b> Taxable invoices export two lines — a pre-tax revenue line plus a sales-tax line to <b>33500</b> (per RKL's IN-1002 example); untaxed invoices stay one line. Written as a plain GL line (not the template's SUBTOTAL flag, which needs Account Labels) — verify against a Sage test import.</span></li>
+    </ul>
+  </div>
+
+  <footer class="foot">
+    <span>Innergy → Sage Intacct Exporter · internal reference</span>
+    <span>Mapping lives in <code>lib/sageColumns.ts</code> &amp; <code>lib/arColumns.ts</code></span>
+  </footer>
+</div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { NormalizedInvoice } from "@/lib/arColumns";
-import { defaultInvoiceBatchTitle } from "@/lib/arColumns";
+import { defaultInvoiceBatchTitle, AR_REVENUE_ACCT_NO } from "@/lib/arColumns";
 import { downloadInvoiceExport } from "@/lib/exportInvoice";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -148,6 +148,14 @@ export default function InvoicesPage() {
                 Heads up: this customer has no External Id set in Innergy, so
                 CUSTOMER_ID will be blank. Sage requires it — set the customer’s
                 Sage ID on their External Id field in Innergy to populate it.
+              </div>
+            )}
+
+            {!AR_REVENUE_ACCT_NO && (
+              <div className="error">
+                Heads up: the revenue account (ACCT_NO) is still blank pending the
+                5,200-series furniture/millwork decision. Fill it in the exported
+                file (or set it in <code>lib/arColumns.ts</code>) before importing.
               </div>
             )}
 

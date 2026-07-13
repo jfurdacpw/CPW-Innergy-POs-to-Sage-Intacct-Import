@@ -28,6 +28,13 @@ export const AR_CONTROL_ACCT_NO = "12100";
  */
 export const AR_REVENUE_ACCT_NO = "";
 
+/**
+ * Sales-tax liability account -> ACCT_NO on the separate tax line. From RKL's
+ * manual example (invoice IN-1002) sales tax posts to 33500 (PA Sales Taxes
+ * Payable). VERIFY this is correct for all entities before importing real invoices.
+ */
+export const AR_SALES_TAX_ACCT_NO = "33500";
+
 export const AR_HEADERS = [
   "DONOTIMPORT",
   "BATCH_TITLE",
@@ -109,8 +116,12 @@ export interface NormalizedInvoice {
   projectNumber?: string;
   /** Work order number(s) -> PO_NO (Reference Number). */
   workOrderNumbers: string[];
-  /** Invoice amount -> TOTAL_DUE and AMOUNT. */
+  /** Invoice total incl. tax (Innergy InvoiceAmount) -> TOTAL_DUE. */
   invoiceAmount: number;
+  /** Pre-tax amount (Innergy InvoicePreTaxAmount) -> revenue line AMOUNT. */
+  preTaxAmount?: number;
+  /** Sales tax (Innergy InvoiceSalesTax) -> a separate tax line when > 0. */
+  salesTax?: number;
   /** Innergy DueDate (ISO YYYY-MM-DD) -> DUE_DATE. */
   dueDate: string;
   /** Raw status label (UI / debugging). */
@@ -131,46 +142,95 @@ export interface BuildInvoiceRowOptions {
 }
 
 /**
- * Build a single AR invoice line (one line per invoice) aligned to AR_HEADERS.
- * Every column not explicitly mapped is an empty string.
+ * Transaction-level values repeated on every line of the invoice.
  *
- * Mapping decisions (confirmed with the user):
- * - PO_NO         <- Work Order number(s), comma-joined
- * - CUSTOMER_ID   <- customer External Id (blank until set in Innergy)
- * - DUE_DATE      <- Innergy DueDate (invoices carry a real due date; no terms field)
- * - TOTAL_DUE/AMOUNT <- InvoiceAmount
- * - ACCT_NO       <- AR_REVENUE_ACCT_NO (5,200-series revenue; pending, see const)
+ * Mapping decisions:
+ * - INVOICE_NO   <- invoice number
+ * - PO_NO        <- Work Order number(s), comma-joined
+ * - CUSTOMER_ID  <- customer External Id (blank until set in Innergy)
+ * - DUE_DATE     <- Innergy DueDate; CREATED_DATE/EXCH_RATE_DATE <- export date
+ * - TOTAL_DUE    <- InvoiceAmount (invoice total incl. tax)
  * - ARINVOICEITEM_ARACCOUNT <- 12100 (AR control account)
- * - MEMO          <- "Innergy Export"
- * - ACTION        <- blank (the AR sheet marks it N/A; Sage defaults to Submit)
- * - TERM_NAME     <- blank (Innergy invoices have no payment-terms field)
- * - all rev-rec / SUBTOTAL / REVENUE_ACCOUNT columns <- blank (no Innergy match)
+ * - TERM_NAME / ACTION / rev-rec columns <- blank (no Innergy equivalent)
  */
-export function buildInvoiceRow(
+function invoiceHeaderValues(
   inv: NormalizedInvoice,
   opts: BuildInvoiceRowOptions
-): string[] {
-  const exportDate = opts.exportDate ?? new Date();
-  const dateStr = formatDateMMDDYYYY(exportDate);
-  const amount = formatAmount(inv.invoiceAmount);
-
-  const values: Partial<Record<ArHeader, string>> = {
+): Partial<Record<ArHeader, string>> {
+  const dateStr = formatDateMMDDYYYY(opts.exportDate ?? new Date());
+  return {
     BATCH_TITLE: opts.batchTitle,
     INVOICE_NO: inv.invoiceNumber,
     PO_NO: inv.workOrderNumbers.join(", "),
     CUSTOMER_ID: inv.customerExternalId,
     CREATED_DATE: dateStr,
     DUE_DATE: isoToMMDDYYYY(inv.dueDate),
-    TOTAL_DUE: amount,
+    TOTAL_DUE: formatAmount(inv.invoiceAmount),
     EXCH_RATE_DATE: dateStr,
+    ARINVOICEITEM_ARACCOUNT: AR_CONTROL_ACCT_NO,
+  };
+}
+
+/** Pre-tax revenue amount for the revenue line (falls back if Innergy omits it). */
+function revenueAmount(inv: NormalizedInvoice): number {
+  if (inv.preTaxAmount && inv.preTaxAmount > 0) return inv.preTaxAmount;
+  const derived = inv.invoiceAmount - (inv.salesTax ?? 0);
+  return derived > 0 ? derived : inv.invoiceAmount;
+}
+
+/**
+ * Build the invoice's revenue line (LINE_NO 1) aligned to AR_HEADERS.
+ * AMOUNT is the PRE-TAX revenue; ACCT_NO is the (pending) revenue account.
+ * Sales tax, if any, goes on a separate line — see buildInvoiceRows.
+ */
+export function buildInvoiceRow(
+  inv: NormalizedInvoice,
+  opts: BuildInvoiceRowOptions
+): string[] {
+  const values: Partial<Record<ArHeader, string>> = {
+    ...invoiceHeaderValues(inv, opts),
     LINE_NO: "1",
     MEMO: EXPORT_MEMO,
     ACCT_NO: AR_REVENUE_ACCT_NO,
-    ARINVOICEITEM_ARACCOUNT: AR_CONTROL_ACCT_NO,
-    AMOUNT: amount,
+    AMOUNT: formatAmount(revenueAmount(inv)),
   };
-
   return AR_HEADERS.map((h) => values[h] ?? "");
+}
+
+/** Build the sales-tax line (LINE_NO 2) posting tax to AR_SALES_TAX_ACCT_NO. */
+function buildTaxRow(
+  inv: NormalizedInvoice,
+  opts: BuildInvoiceRowOptions,
+  tax: number
+): string[] {
+  const values: Partial<Record<ArHeader, string>> = {
+    ...invoiceHeaderValues(inv, opts),
+    LINE_NO: "2",
+    MEMO: "Sales Tax",
+    ACCT_NO: AR_SALES_TAX_ACCT_NO,
+    AMOUNT: formatAmount(tax),
+  };
+  return AR_HEADERS.map((h) => values[h] ?? "");
+}
+
+/**
+ * Build every line for the invoice: the pre-tax revenue line, plus a separate
+ * sales-tax line to AR_SALES_TAX_ACCT_NO when the invoice has tax. This is what
+ * the exporter writes.
+ *
+ * Note: tax is posted as a plain GL line, NOT via the template's SUBTOTAL="T" flag —
+ * that flag requires Account Labels, which aren't mapped. The GL effect is the same
+ * (revenue pre-tax + tax to 33500; AR debit = the full total). Verify against a Sage
+ * test import before relying on it for taxable invoices.
+ */
+export function buildInvoiceRows(
+  inv: NormalizedInvoice,
+  opts: BuildInvoiceRowOptions
+): string[][] {
+  const rows = [buildInvoiceRow(inv, opts)];
+  const tax = inv.salesTax ?? 0;
+  if (tax > 0.005) rows.push(buildTaxRow(inv, opts, tax));
+  return rows;
 }
 
 /** Default batch title for an invoice: "Innergy INV <number> <YYYY-MM-DD>". */
