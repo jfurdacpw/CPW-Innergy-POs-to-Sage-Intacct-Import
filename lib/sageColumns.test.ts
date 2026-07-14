@@ -53,7 +53,7 @@ test("buildBillRow maps PO fields to the correct columns", () => {
 
   assert.equal(row.length, 52);
   assert.equal(col("BATCH_TITLE"), "Innergy PO PO-1042 2026-07-02");
-  assert.equal(col("BILL_NO"), "PO-1042");
+  assert.equal(col("BILL_NO"), "1042");
   assert.equal(col("PO_NO"), "PO-1042");
   assert.equal(col("VENDOR_ID"), "V-500");
   assert.equal(col("PAYTO"), "Jane Doe");

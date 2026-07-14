@@ -118,6 +118,11 @@ export function formatAmount(value: number): string {
   return value.toFixed(2);
 }
 
+/** Strip a leading "PO-" from a PO number, e.g. "PO-1042" -> "1042". */
+export function stripPoPrefix(poNumber: string): string {
+  return poNumber.replace(/^PO-/i, "");
+}
+
 export interface BuildRowOptions {
   /** BATCH_TITLE value. Sage pre-pends "HISTORY - " on import. */
   batchTitle: string;
@@ -140,7 +145,7 @@ export function buildBillRow(
 
   const values: Partial<Record<SageHeader, string>> = {
     BATCH_TITLE: opts.batchTitle,
-    BILL_NO: po.poNumber,
+    BILL_NO: stripPoPrefix(po.poNumber),
     PO_NO: po.poNumber,
     VENDOR_ID: po.vendorExternalId,
     PAYTO: po.vendorContact,
