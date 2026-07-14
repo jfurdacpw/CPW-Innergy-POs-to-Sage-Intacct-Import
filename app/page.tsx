@@ -181,7 +181,7 @@ export default function Home() {
           <div className="modal">
             <h2>Export PO {exportTarget.poNumber}</h2>
             <p className="hint">
-              Generates an .xlsx AP Bill import file for Sage Intacct.
+              Generates a .csv AP Bill import file for Sage Intacct.
             </p>
 
             {exportError && <div className="error">{exportError}</div>}
@@ -212,7 +212,7 @@ export default function Home() {
                 onClick={confirmExport}
                 disabled={exporting || !batchTitle.trim()}
               >
-                {exporting ? "Exporting…" : "Download .xlsx"}
+                {exporting ? "Exporting…" : "Download .csv"}
               </button>
             </div>
           </div>

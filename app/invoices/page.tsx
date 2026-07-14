@@ -140,7 +140,7 @@ export default function InvoicesPage() {
           <div className="modal">
             <h2>Export invoice {exportTarget.invoiceNumber}</h2>
             <p className="hint">
-              Generates an .xlsx AR Invoice import file for Sage Intacct.
+              Generates a .csv AR Invoice import file for Sage Intacct.
             </p>
 
             {!exportTarget.customerExternalId && (
@@ -181,7 +181,7 @@ export default function InvoicesPage() {
                 onClick={confirmExport}
                 disabled={!batchTitle.trim()}
               >
-                Download .xlsx
+                Download .csv
               </button>
             </div>
           </div>
