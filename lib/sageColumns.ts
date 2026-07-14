@@ -78,6 +78,13 @@ export const EXPORT_MEMO = "Innergy Export";
 export const BILL_ACTION = "Submit";
 
 /**
+ * Fallback VENDOR_ID used when a PO's vendor has no External Id set in Innergy
+ * yet (vendors aren't all logged there yet). Remove once every vendor has a
+ * real Sage Intacct vendor ID recorded in Innergy.
+ */
+export const FALLBACK_VENDOR_ID = "SBD-00001";
+
+/**
  * Normalized purchase order shape the exporter consumes. The API route
  * (lib/innergy.ts) is responsible for mapping the raw Innergy response into this.
  */
@@ -147,7 +154,7 @@ export function buildBillRow(
     BATCH_TITLE: opts.batchTitle,
     BILL_NO: stripPoPrefix(po.poNumber),
     PO_NO: po.poNumber,
-    VENDOR_ID: po.vendorExternalId,
+    VENDOR_ID: po.vendorExternalId || FALLBACK_VENDOR_ID,
     PAYTO: po.vendorContact,
     CREATED_DATE: dateStr,
     TOTAL_DUE: amount,

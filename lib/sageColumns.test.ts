@@ -70,3 +70,25 @@ test("buildBillRow maps PO fields to the correct columns", () => {
   assert.equal(col("RETURNTO"), "");
   assert.equal(col("DONOTIMPORT"), "");
 });
+
+test("buildBillRow falls back to SBD-00001 when the vendor has no External Id", () => {
+  const po: NormalizedPurchaseOrder = {
+    id: "abc",
+    poNumber: "PO-1042",
+    vendorExternalId: "",
+    vendorName: "Sullivan Building & Design Group LLC",
+    vendorContact: "Jane Doe",
+    paymentTerms: "Net 30",
+    receivedTotalCost: 1234.5,
+    isReconciled: true,
+    status: "Reconciled",
+  };
+
+  const row = buildBillRow(po, {
+    batchTitle: "Innergy PO PO-1042 2026-07-02",
+    exportDate: new Date(2026, 6, 2),
+  });
+
+  const col = (name: string) => row[SAGE_HEADERS.indexOf(name as any)];
+  assert.equal(col("VENDOR_ID"), "SBD-00001");
+});
