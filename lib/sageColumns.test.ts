@@ -64,7 +64,7 @@ test("buildBillRow maps PO fields to the correct columns", () => {
   assert.equal(col("TERM_NAME"), "Net 30");
   assert.equal(col("LINE_NO"), "1");
   assert.equal(col("MEMO"), "Innergy Export");
-  assert.equal(col("ACCT_NO"), "32000");
+  assert.equal(col("ACCT_NO"), "60200");
   assert.equal(col("ACTION"), "Submit");
   // Unmapped columns are blank.
   assert.equal(col("RETURNTO"), "");

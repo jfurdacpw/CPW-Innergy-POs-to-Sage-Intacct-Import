@@ -67,10 +67,9 @@ export type SageHeader = (typeof SAGE_HEADERS)[number];
 
 /**
  * The GL account number that bill lines post to.
- * Row 2 of the template flagged this as "32000 - Accounts Payable? Will this change?"
  * — kept as a single constant so it's a one-line change if it moves.
  */
-export const DEFAULT_ACCT_NO = "32000";
+export const DEFAULT_ACCT_NO = "60200";
 
 /** Constant memo written to every exported line. */
 export const EXPORT_MEMO = "Innergy Export";
