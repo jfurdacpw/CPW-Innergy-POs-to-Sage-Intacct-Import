@@ -75,10 +75,8 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("AMOUNT"), "3070.02");
   assert.equal(col("LINE_NO"), "1");
   assert.equal(col("MEMO"), "Innergy Export");
-  // ACCT_NO (revenue) is pending the 5,200-series furniture/millwork decision;
-  // it must NOT be the AP account (32000). ARINVOICEITEM_ARACCOUNT is the AR control account.
-  assert.equal(col("ACCT_NO"), "");
-  assert.notEqual(col("ACCT_NO"), "32000");
+  // ARINVOICEITEM_ARACCOUNT is the AR control account (the debit).
+  assert.equal(col("ACCT_NO"), "60200");
   assert.equal(col("ARINVOICEITEM_ARACCOUNT"), "12100");
   // Per the AR sheet, these stay blank.
   assert.equal(col("TERM_NAME"), "");
@@ -109,10 +107,10 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   const col = (r: string[], name: string) => r[AR_HEADERS.indexOf(name as any)];
 
   assert.equal(rows.length, 2);
-  // Revenue line: pre-tax amount, revenue account (pending → blank), line 1.
+  // Revenue line: pre-tax amount, revenue account, line 1.
   assert.equal(col(rows[0], "LINE_NO"), "1");
   assert.equal(col(rows[0], "AMOUNT"), "1300.00");
-  assert.equal(col(rows[0], "ACCT_NO"), "");
+  assert.equal(col(rows[0], "ACCT_NO"), "60200");
   // Tax line: tax amount to 33500, line 2, header repeated.
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "AMOUNT"), "78.00");

@@ -19,14 +19,8 @@ import { formatDateMMDDYYYY, formatAmount, EXPORT_MEMO } from "./sageColumns";
  */
 export const AR_CONTROL_ACCT_NO = "12100";
 
-/**
- * ACCT_NO is the revenue line account (the credit) — a 5,200-series account.
- * PENDING: the meeting split this into furniture-sales vs. millwork-sales
- * (5,200-series), and which one applies depends on the unresolved
- * furniture/millwork department decision. Left blank until that is finalized;
- * set this one constant once the revenue account is chosen.
- */
-export const AR_REVENUE_ACCT_NO = "";
+/** ACCT_NO for the revenue line (the credit) on non-tax invoice lines. */
+export const AR_REVENUE_ACCT_NO = "60200";
 
 /**
  * Sales-tax liability account -> ACCT_NO on the separate tax line. From RKL's
