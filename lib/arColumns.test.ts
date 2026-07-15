@@ -67,7 +67,8 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("BATCH_TITLE"), "Innergy INV INV-26-100000 2026-07-06");
   assert.equal(col("INVOICE_NO"), "INV-26-100000");
   assert.equal(col("PO_NO"), "P-26-1060-002p, P-26-1060-003p");
-  assert.equal(col("CUSTOMER_ID"), "");
+  // Falls back to FALLBACK_CUSTOMER_ID when Innergy has no External Id set.
+  assert.equal(col("CUSTOMER_ID"), "SBD-00001");
   assert.equal(col("CREATED_DATE"), "07/06/2026");
   assert.equal(col("DUE_DATE"), "08/10/2026");
   assert.equal(col("EXCH_RATE_DATE"), "07/06/2026");
@@ -79,6 +80,7 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("ACCT_NO"), "60200");
   assert.equal(col("ARINVOICEITEM_ARACCOUNT"), "12100");
   // Per the AR sheet, these stay blank.
+  assert.equal(col("ACCT_LABEL"), "");
   assert.equal(col("TERM_NAME"), "");
   assert.equal(col("ACTION"), "");
   assert.equal(col("REVENUE_ACCOUNT"), "");
@@ -115,6 +117,7 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "AMOUNT"), "78.00");
   assert.equal(col(rows[1], "ACCT_NO"), "33500");
+  assert.equal(col(rows[1], "ACCT_LABEL"), "Tax");
   assert.equal(col(rows[1], "INVOICE_NO"), "INV-26-100001");
   assert.equal(col(rows[1], "ARINVOICEITEM_ARACCOUNT"), "12100");
   // TOTAL_DUE stays the full invoice total on both lines.

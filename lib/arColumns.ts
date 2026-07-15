@@ -29,6 +29,16 @@ export const AR_REVENUE_ACCT_NO = "60200";
  */
 export const AR_SALES_TAX_ACCT_NO = "33500";
 
+/**
+ * Fallback CUSTOMER_ID used when an invoice's customer has no External Id set
+ * in Innergy yet. Remove once every customer has a real Sage Intacct customer
+ * ID recorded there (matches the AP side's FALLBACK_VENDOR_ID pattern).
+ */
+export const FALLBACK_CUSTOMER_ID = "SBD-00001";
+
+/** ACCT_LABEL value for the sales-tax line — matches Sage's "Tax" account label. */
+export const TAX_ACCT_LABEL = "Tax";
+
 export const AR_HEADERS = [
   "DONOTIMPORT",
   "BATCH_TITLE",
@@ -156,7 +166,7 @@ function invoiceHeaderValues(
     BATCH_TITLE: opts.batchTitle,
     INVOICE_NO: inv.invoiceNumber,
     PO_NO: inv.workOrderNumbers.join(", "),
-    CUSTOMER_ID: inv.customerExternalId,
+    CUSTOMER_ID: inv.customerExternalId || FALLBACK_CUSTOMER_ID,
     CREATED_DATE: dateStr,
     DUE_DATE: isoToMMDDYYYY(inv.dueDate),
     TOTAL_DUE: formatAmount(inv.invoiceAmount),
@@ -202,6 +212,7 @@ function buildTaxRow(
     LINE_NO: "2",
     MEMO: "Sales Tax",
     ACCT_NO: AR_SALES_TAX_ACCT_NO,
+    ACCT_LABEL: TAX_ACCT_LABEL,
     AMOUNT: formatAmount(tax),
   };
   return AR_HEADERS.map((h) => values[h] ?? "");

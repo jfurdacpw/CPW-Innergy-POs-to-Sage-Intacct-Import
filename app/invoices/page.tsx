@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { NormalizedInvoice } from "@/lib/arColumns";
-import { defaultInvoiceBatchTitle, AR_REVENUE_ACCT_NO } from "@/lib/arColumns";
+import {
+  defaultInvoiceBatchTitle,
+  AR_REVENUE_ACCT_NO,
+  FALLBACK_CUSTOMER_ID,
+} from "@/lib/arColumns";
 import { downloadInvoiceExport } from "@/lib/exportInvoice";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -146,8 +150,10 @@ export default function InvoicesPage() {
             {!exportTarget.customerExternalId && (
               <div className="error">
                 Heads up: this customer has no External Id set in Innergy, so
-                CUSTOMER_ID will be blank. Sage requires it — set the customer’s
-                Sage ID on their External Id field in Innergy to populate it.
+                CUSTOMER_ID will export as the fallback default (
+                {FALLBACK_CUSTOMER_ID}). Set the customer’s Sage ID on their
+                External Id field in Innergy to have the real value populate
+                instead.
               </div>
             )}
 
