@@ -34,7 +34,7 @@ export const AR_SALES_TAX_ACCT_NO = "33500";
  * in Innergy yet. Remove once every customer has a real Sage Intacct customer
  * ID recorded there (matches the AP side's FALLBACK_VENDOR_ID pattern).
  */
-export const FALLBACK_CUSTOMER_ID = "SBD-00001";
+export const FALLBACK_CUSTOMER_ID = "C-00005";
 
 /** ACCT_LABEL value for the sales-tax line — matches Sage's "Tax" account label. */
 export const TAX_ACCT_LABEL = "Tax";

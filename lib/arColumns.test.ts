@@ -68,7 +68,7 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("INVOICE_NO"), "INV-26-100000");
   assert.equal(col("PO_NO"), "P-26-1060-002p, P-26-1060-003p");
   // Falls back to FALLBACK_CUSTOMER_ID when Innergy has no External Id set.
-  assert.equal(col("CUSTOMER_ID"), "SBD-00001");
+  assert.equal(col("CUSTOMER_ID"), "C-00005");
   assert.equal(col("CREATED_DATE"), "07/06/2026");
   assert.equal(col("DUE_DATE"), "08/10/2026");
   assert.equal(col("EXCH_RATE_DATE"), "07/06/2026");
