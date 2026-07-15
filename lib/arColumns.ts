@@ -39,8 +39,13 @@ export const FALLBACK_CUSTOMER_ID = "C-00005";
 /** ACCT_LABEL value for the sales-tax line — matches Sage's "Tax" account label. */
 export const TAX_ACCT_LABEL = "Tax";
 
-/** ACCT_LABEL value for the revenue (non-subtotal) line. */
-export const REVENUE_ACCT_LABEL = "50300";
+/**
+ * ACCT_LABEL value for the revenue (non-subtotal) line. "50300" was tried
+ * first but Sage rejected it (error AR-0148: it resolves to a Subtotal-type
+ * label, which isn't valid on line items) — "Taxable" is next option down
+ * from the account label picklist (Subtotal / Tax / Tax-NY / Taxable).
+ */
+export const REVENUE_ACCT_LABEL = "Taxable";
 
 export const AR_HEADERS = [
   "DONOTIMPORT",
