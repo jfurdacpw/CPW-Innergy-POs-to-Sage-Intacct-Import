@@ -79,8 +79,8 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   // ARINVOICEITEM_ARACCOUNT is the AR control account (the debit).
   assert.equal(col("ACCT_NO"), "60200");
   assert.equal(col("ARINVOICEITEM_ARACCOUNT"), "12100");
+  assert.equal(col("ACCT_LABEL"), "50300");
   // Per the AR sheet, these stay blank.
-  assert.equal(col("ACCT_LABEL"), "");
   assert.equal(col("TERM_NAME"), "");
   assert.equal(col("ACTION"), "");
   assert.equal(col("REVENUE_ACCOUNT"), "");
@@ -113,6 +113,7 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   assert.equal(col(rows[0], "LINE_NO"), "1");
   assert.equal(col(rows[0], "AMOUNT"), "1300.00");
   assert.equal(col(rows[0], "ACCT_NO"), "60200");
+  assert.equal(col(rows[0], "ACCT_LABEL"), "50300");
   // Tax line: tax amount to 33500, line 2, header repeated.
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "AMOUNT"), "78.00");

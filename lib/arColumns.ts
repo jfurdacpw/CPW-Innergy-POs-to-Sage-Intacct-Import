@@ -39,6 +39,9 @@ export const FALLBACK_CUSTOMER_ID = "SBD-00001";
 /** ACCT_LABEL value for the sales-tax line — matches Sage's "Tax" account label. */
 export const TAX_ACCT_LABEL = "Tax";
 
+/** ACCT_LABEL value for the revenue (non-subtotal) line. */
+export const REVENUE_ACCT_LABEL = "50300";
+
 export const AR_HEADERS = [
   "DONOTIMPORT",
   "BATCH_TITLE",
@@ -196,6 +199,7 @@ export function buildInvoiceRow(
     LINE_NO: "1",
     MEMO: EXPORT_MEMO,
     ACCT_NO: AR_REVENUE_ACCT_NO,
+    ACCT_LABEL: REVENUE_ACCT_LABEL,
     AMOUNT: formatAmount(revenueAmount(inv)),
   };
   return AR_HEADERS.map((h) => values[h] ?? "");
