@@ -36,17 +36,6 @@ export const AR_SALES_TAX_ACCT_NO = "33500";
  */
 export const FALLBACK_CUSTOMER_ID = "C-00005";
 
-/** ACCT_LABEL value for the sales-tax line — matches Sage's "Tax" account label. */
-export const TAX_ACCT_LABEL = "Tax";
-
-/**
- * ACCT_LABEL value for the revenue (non-subtotal) line. "50300" was tried
- * first but Sage rejected it (error AR-0148: it resolves to a Subtotal-type
- * label, which isn't valid on line items) — "Taxable" is next option down
- * from the account label picklist (Subtotal / Tax / Tax-NY / Taxable).
- */
-export const REVENUE_ACCT_LABEL = "Taxable";
-
 export const AR_HEADERS = [
   "DONOTIMPORT",
   "BATCH_TITLE",
@@ -204,7 +193,6 @@ export function buildInvoiceRow(
     LINE_NO: "1",
     MEMO: EXPORT_MEMO,
     ACCT_NO: AR_REVENUE_ACCT_NO,
-    ACCT_LABEL: REVENUE_ACCT_LABEL,
     AMOUNT: formatAmount(revenueAmount(inv)),
   };
   return AR_HEADERS.map((h) => values[h] ?? "");
@@ -221,7 +209,6 @@ function buildTaxRow(
     LINE_NO: "2",
     MEMO: "Sales Tax",
     ACCT_NO: AR_SALES_TAX_ACCT_NO,
-    ACCT_LABEL: TAX_ACCT_LABEL,
     AMOUNT: formatAmount(tax),
   };
   return AR_HEADERS.map((h) => values[h] ?? "");
@@ -234,8 +221,12 @@ function buildTaxRow(
  *
  * Note: tax is posted as a plain GL line, NOT via the template's SUBTOTAL="T" flag —
  * that flag requires Account Labels, which aren't mapped. The GL effect is the same
- * (revenue pre-tax + tax to 33500; AR debit = the full total). Verify against a Sage
- * test import before relying on it for taxable invoices.
+ * (revenue pre-tax + tax to 33500; AR debit = the full total).
+ *
+ * ACCT_LABEL deliberately stays blank on both lines: Sage error AR-0148 confirmed
+ * ("Subtotal account labels are not valid for line items") when either line was
+ * given a value from the account label picklist — those labels are only valid on
+ * SUBTOTAL="T" rows, not on lines that already carry a real ACCT_NO.
  */
 export function buildInvoiceRows(
   inv: NormalizedInvoice,
