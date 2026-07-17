@@ -1,33 +1,40 @@
 /**
  * Sage Intacct AR Invoice import contract.
  *
- * The header row below must match the Sage Intacct "Accounts Receivable invoices"
- * import template EXACTLY, in order. The importer matches on these names.
+ * The header row below must match the confirmed-working "SBDG AR Invoices Sample
+ * Import" template EXACTLY, in order (46 columns) — including its blank column 5
+ * and its two ACCT_LABEL columns (19 and 21; only 19 is ever populated). This
+ * layout was verified by a successful Sage import of INV-26-100000 on 2026-07-17.
  *
- * Source template: "Accounts Receivable invoices (Innergy Field Mapping).xls"
+ * Because column names alone don't uniquely identify a position (column 5 has no
+ * name, and ACCT_LABEL appears twice), rows are built positionally by index
+ * rather than through a name-keyed object.
  */
 import { formatDateMMDDYYYY, formatAmount, EXPORT_MEMO } from "./sageColumns";
 
-/**
- * AR-specific GL accounts. These are deliberately NOT shared with the AP side:
- * an AR invoice must never post to the AP liability account (32000). The app
- * previously reused the AP `DEFAULT_ACCT_NO` here, which booked revenue into
- * accounts payable — see RKL meeting 2026-07-09.
- *
- * ARINVOICEITEM_ARACCOUNT is the AR control account (the debit).
- * Confirmed in the meeting: "AR account is 12,100".
- */
-export const AR_CONTROL_ACCT_NO = "12100";
-
 /** ACCT_NO for the revenue line (the credit) on non-tax invoice lines. */
-export const AR_REVENUE_ACCT_NO = "60200";
+export const AR_REVENUE_ACCT_NO = "50200";
 
 /**
- * Sales-tax liability account -> ACCT_NO on the separate tax line. From RKL's
- * manual example (invoice IN-1002) sales tax posts to 33500 (PA Sales Taxes
- * Payable). VERIFY this is correct for all entities before importing real invoices.
+ * ACCT_LABEL for the revenue line. Must be the exact Sage account label
+ * picklist entry — arbitrary text (e.g. just "50300" or "Taxable") fails with
+ * AR-0148. Confirmed working value from the sample import.
  */
+export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales - Taxable";
+
+/** Sales-tax liability account -> ACCT_NO on the separate tax line. */
 export const AR_SALES_TAX_ACCT_NO = "33500";
+
+/** ACCT_LABEL for the tax line — the picklist entry, confirmed working. */
+export const AR_TAX_ACCT_LABEL = "Tax";
+
+/**
+ * LOCATION_ID / DEPT_ID hardcoded per user request (2026-07-17) until Innergy
+ * provides per-invoice location/department data. These WILL vary in the
+ * future — revisit when that mapping exists.
+ */
+export const AR_LOCATION_ID = "20-PA";
+export const AR_DEPT_ID = "FURNITURE";
 
 /**
  * Fallback CUSTOMER_ID used when an invoice's customer has no External Id set
@@ -42,12 +49,11 @@ export const AR_HEADERS = [
   "INVOICE_NO",
   "PO_NO",
   "CUSTOMER_ID",
+  "",
   "POSTING_DATE",
   "CREATED_DATE",
   "DUE_DATE",
   "TOTAL_DUE",
-  "TOTAL_PAID",
-  "PAID_DATE",
   "TERM_NAME",
   "DESCRIPTION",
   "BASECURR",
@@ -57,6 +63,7 @@ export const AR_HEADERS = [
   "EXCHANGE_RATE",
   "LINE_NO",
   "MEMO",
+  "ACCT_LABEL",
   "ACCT_NO",
   "ACCT_LABEL",
   "LOCATION_ID",
@@ -77,23 +84,39 @@ export const AR_HEADERS = [
   "SUPDOCID",
   "BILLTO",
   "SHIPTO",
-  "AMORTIZATIONTEMPLATEID",
-  "AMORTIZATIONSTARTDATE",
-  "AMORTIZATIONENDDATE",
   "REVREC_ENDDATE",
-  "INVOICE_TYPE",
-  "INVOICE_MODE",
   "ARINVOICEITEM_PROJECTID",
   "ARINVOICEITEM_CUSTOMERID",
   "ARINVOICEITEM_VENDORID",
   "ARINVOICEITEM_EMPLOYEEID",
-  "ARINVOICEITEM_ITEMID",
   "ARINVOICEITEM_CLASSID",
-  "ARINVOICEITEM_TASKID",
-  "ARINVOICEITEM_COSTTYPEID",
 ] as const;
 
 export type ArHeader = (typeof AR_HEADERS)[number];
+
+/** Column indices, by position, matching AR_HEADERS above. */
+const COL = {
+  BATCH_TITLE: 1,
+  INVOICE_NO: 2,
+  PO_NO: 3,
+  CUSTOMER_ID: 4,
+  CUSTOMER_NAME_SANITY: 5,
+  POSTING_DATE: 6,
+  CREATED_DATE: 7,
+  DUE_DATE: 8,
+  TOTAL_DUE: 9,
+  LINE_NO: 17,
+  MEMO: 18,
+  ACCT_LABEL: 19,
+  ACCT_NO: 20,
+  LOCATION_ID: 22,
+  DEPT_ID: 23,
+  AMOUNT: 25,
+  SUBTOTAL: 26,
+  ARINVOICEITEM_PROJECTID: 41,
+} as const;
+
+const ROW_LENGTH = AR_HEADERS.length;
 
 /**
  * Normalized invoice shape the exporter consumes. The API route
@@ -104,7 +127,7 @@ export interface NormalizedInvoice {
   id: string;
   /** Invoice number -> INVOICE_NO. */
   invoiceNumber: string;
-  /** Customer display name (for the UI table). */
+  /** Customer display name -> column 5 (sanity-check only, not a real Sage field). */
   customerName: string;
   /**
    * Customer's External Id -> CUSTOMER_ID. Blank until the Sage customer ID is
@@ -113,7 +136,7 @@ export interface NormalizedInvoice {
   customerExternalId: string;
   /** Project name (UI). */
   projectName?: string;
-  /** Project number (UI). */
+  /** Project number -> ARINVOICEITEM_PROJECTID. */
   projectNumber?: string;
   /** Work order number(s) -> PO_NO (Reference Number). */
   workOrderNumbers: string[];
@@ -138,38 +161,8 @@ export function isoToMMDDYYYY(iso: string): string {
 export interface BuildInvoiceRowOptions {
   /** BATCH_TITLE value. Sage pre-pends "HISTORY - " on import. */
   batchTitle: string;
-  /** Date used for CREATED_DATE and EXCH_RATE_DATE. Defaults to today. */
+  /** Date used for POSTING_DATE/CREATED_DATE. Defaults to today. */
   exportDate?: Date;
-}
-
-/**
- * Transaction-level values repeated on every line of the invoice.
- *
- * Mapping decisions:
- * - INVOICE_NO   <- invoice number
- * - PO_NO        <- Work Order number(s), comma-joined
- * - CUSTOMER_ID  <- customer External Id (blank until set in Innergy)
- * - DUE_DATE     <- Innergy DueDate; CREATED_DATE/EXCH_RATE_DATE <- export date
- * - TOTAL_DUE    <- InvoiceAmount (invoice total incl. tax)
- * - ARINVOICEITEM_ARACCOUNT <- 12100 (AR control account)
- * - TERM_NAME / ACTION / rev-rec columns <- blank (no Innergy equivalent)
- */
-function invoiceHeaderValues(
-  inv: NormalizedInvoice,
-  opts: BuildInvoiceRowOptions
-): Partial<Record<ArHeader, string>> {
-  const dateStr = formatDateMMDDYYYY(opts.exportDate ?? new Date());
-  return {
-    BATCH_TITLE: opts.batchTitle,
-    INVOICE_NO: inv.invoiceNumber,
-    PO_NO: inv.workOrderNumbers.join(", "),
-    CUSTOMER_ID: inv.customerExternalId || FALLBACK_CUSTOMER_ID,
-    CREATED_DATE: dateStr,
-    DUE_DATE: isoToMMDDYYYY(inv.dueDate),
-    TOTAL_DUE: formatAmount(inv.invoiceAmount),
-    EXCH_RATE_DATE: dateStr,
-    ARINVOICEITEM_ARACCOUNT: AR_CONTROL_ACCT_NO,
-  };
 }
 
 /** Pre-tax revenue amount for the revenue line (falls back if Innergy omits it). */
@@ -180,53 +173,60 @@ function revenueAmount(inv: NormalizedInvoice): number {
 }
 
 /**
- * Build the invoice's revenue line (LINE_NO 1) aligned to AR_HEADERS.
- * AMOUNT is the PRE-TAX revenue; ACCT_NO is the (pending) revenue account.
- * Sales tax, if any, goes on a separate line — see buildInvoiceRows.
+ * Build the invoice's revenue line (LINE_NO 1). This is the only line that
+ * carries the header-level fields (BATCH_TITLE, INVOICE_NO, CUSTOMER_ID,
+ * dates, TOTAL_DUE) — matching the confirmed-working sample, where the
+ * continuation line leaves those blank.
  */
 export function buildInvoiceRow(
   inv: NormalizedInvoice,
   opts: BuildInvoiceRowOptions
 ): string[] {
-  const values: Partial<Record<ArHeader, string>> = {
-    ...invoiceHeaderValues(inv, opts),
-    LINE_NO: "1",
-    MEMO: EXPORT_MEMO,
-    ACCT_NO: AR_REVENUE_ACCT_NO,
-    AMOUNT: formatAmount(revenueAmount(inv)),
-  };
-  return AR_HEADERS.map((h) => values[h] ?? "");
+  const dateStr = formatDateMMDDYYYY(opts.exportDate ?? new Date());
+  const row = new Array<string>(ROW_LENGTH).fill("");
+
+  row[COL.BATCH_TITLE] = opts.batchTitle;
+  row[COL.INVOICE_NO] = inv.invoiceNumber;
+  row[COL.PO_NO] = inv.workOrderNumbers.join(", ");
+  row[COL.CUSTOMER_ID] = inv.customerExternalId || FALLBACK_CUSTOMER_ID;
+  row[COL.CUSTOMER_NAME_SANITY] = inv.customerName;
+  row[COL.POSTING_DATE] = dateStr;
+  row[COL.CREATED_DATE] = dateStr;
+  row[COL.DUE_DATE] = isoToMMDDYYYY(inv.dueDate);
+  row[COL.TOTAL_DUE] = formatAmount(inv.invoiceAmount);
+  row[COL.LINE_NO] = "1";
+  row[COL.MEMO] = EXPORT_MEMO;
+  row[COL.ACCT_LABEL] = AR_REVENUE_ACCT_LABEL;
+  row[COL.ACCT_NO] = AR_REVENUE_ACCT_NO;
+  row[COL.LOCATION_ID] = AR_LOCATION_ID;
+  row[COL.DEPT_ID] = AR_DEPT_ID;
+  row[COL.AMOUNT] = formatAmount(revenueAmount(inv));
+  row[COL.ARINVOICEITEM_PROJECTID] = inv.projectNumber || "";
+
+  return row;
 }
 
-/** Build the sales-tax line (LINE_NO 2) posting tax to AR_SALES_TAX_ACCT_NO. */
-function buildTaxRow(
-  inv: NormalizedInvoice,
-  opts: BuildInvoiceRowOptions,
-  tax: number
-): string[] {
-  const values: Partial<Record<ArHeader, string>> = {
-    ...invoiceHeaderValues(inv, opts),
-    LINE_NO: "2",
-    MEMO: "Sales Tax",
-    ACCT_NO: AR_SALES_TAX_ACCT_NO,
-    AMOUNT: formatAmount(tax),
-  };
-  return AR_HEADERS.map((h) => values[h] ?? "");
+/**
+ * Build the sales-tax continuation line (LINE_NO 2). Only line-level fields
+ * are set — no INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE — matching the
+ * confirmed-working sample exactly.
+ */
+function buildTaxRow(tax: number): string[] {
+  const row = new Array<string>(ROW_LENGTH).fill("");
+
+  row[COL.LINE_NO] = "2";
+  row[COL.ACCT_LABEL] = AR_TAX_ACCT_LABEL;
+  row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
+  row[COL.LOCATION_ID] = AR_LOCATION_ID;
+  row[COL.AMOUNT] = formatAmount(tax);
+  row[COL.SUBTOTAL] = "T";
+
+  return row;
 }
 
 /**
  * Build every line for the invoice: the pre-tax revenue line, plus a separate
- * sales-tax line to AR_SALES_TAX_ACCT_NO when the invoice has tax. This is what
- * the exporter writes.
- *
- * Note: tax is posted as a plain GL line, NOT via the template's SUBTOTAL="T" flag —
- * that flag requires Account Labels, which aren't mapped. The GL effect is the same
- * (revenue pre-tax + tax to 33500; AR debit = the full total).
- *
- * ACCT_LABEL deliberately stays blank on both lines: Sage error AR-0148 confirmed
- * ("Subtotal account labels are not valid for line items") when either line was
- * given a value from the account label picklist — those labels are only valid on
- * SUBTOTAL="T" rows, not on lines that already carry a real ACCT_NO.
+ * sales-tax line when the invoice has tax. This is what the exporter writes.
  */
 export function buildInvoiceRows(
   inv: NormalizedInvoice,
@@ -234,7 +234,7 @@ export function buildInvoiceRows(
 ): string[][] {
   const rows = [buildInvoiceRow(inv, opts)];
   const tax = inv.salesTax ?? 0;
-  if (tax > 0.005) rows.push(buildTaxRow(inv, opts, tax));
+  if (tax > 0.005) rows.push(buildTaxRow(tax));
   return rows;
 }
 
