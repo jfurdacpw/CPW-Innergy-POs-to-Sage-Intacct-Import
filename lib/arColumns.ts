@@ -105,6 +105,7 @@ const COL = {
   CREATED_DATE: 7,
   DUE_DATE: 8,
   TOTAL_DUE: 9,
+  DESCRIPTION: 11,
   LINE_NO: 17,
   MEMO: 18,
   ACCT_LABEL: 19,
@@ -196,6 +197,7 @@ export function buildInvoiceRow(
   row[COL.TOTAL_DUE] = formatAmount(inv.invoiceAmount);
   row[COL.LINE_NO] = "1";
   row[COL.MEMO] = EXPORT_MEMO;
+  row[COL.DESCRIPTION] = EXPORT_MEMO;
   row[COL.ACCT_LABEL] = AR_REVENUE_ACCT_LABEL;
   row[COL.ACCT_NO] = AR_REVENUE_ACCT_NO;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
@@ -217,16 +219,21 @@ export function buildInvoiceRow(
  * Build the sales-tax continuation line (LINE_NO 2). Only line-level fields
  * are set — no INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE — matching the
  * confirmed-working sample exactly.
+ *
+ * SUBTOTAL deliberately stays blank: RKL confirmed (2026-07-17, INV-26-100001)
+ * that leaving column AA/SUBTOTAL blank — not "T" — is what actually imported
+ * successfully with correct GL entries.
  */
 function buildTaxRow(tax: number): string[] {
   const row = new Array<string>(ROW_LENGTH).fill("");
 
   row[COL.LINE_NO] = "2";
+  row[COL.MEMO] = "Sales Tax";
+  row[COL.DESCRIPTION] = "Sales Tax";
   row[COL.ACCT_LABEL] = AR_TAX_ACCT_LABEL;
   row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.AMOUNT] = formatAmount(tax);
-  row[COL.SUBTOTAL] = "T";
 
   return row;
 }

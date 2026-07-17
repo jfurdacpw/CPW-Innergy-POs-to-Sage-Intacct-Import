@@ -76,6 +76,7 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("AMOUNT"), "3070.02");
   assert.equal(col("LINE_NO"), "1");
   assert.equal(col("MEMO"), "Innergy Export");
+  assert.equal(col("DESCRIPTION"), "Innergy Export");
   assert.equal(col("ACCT_NO"), "50200");
   assert.equal(col("ACCT_LABEL"), "50200-Furniture Sales - Taxable");
   assert.equal(col("LOCATION_ID"), "20-PA");
@@ -140,11 +141,14 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   assert.equal(col(rows[0], "ACCT_NO"), "50200");
   assert.equal(col(rows[0], "ACCT_LABEL"), "50200-Furniture Sales - Taxable");
   // Tax line: tax amount to 33500, line 2 — header/date fields stay blank.
+  // SUBTOTAL stays blank too — RKL confirmed "T" is NOT needed (2026-07-17).
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "AMOUNT"), "78.00");
   assert.equal(col(rows[1], "ACCT_NO"), "33500");
   assert.equal(col(rows[1], "ACCT_LABEL"), "Tax");
-  assert.equal(col(rows[1], "SUBTOTAL"), "T");
+  assert.equal(col(rows[1], "MEMO"), "Sales Tax");
+  assert.equal(col(rows[1], "DESCRIPTION"), "Sales Tax");
+  assert.equal(col(rows[1], "SUBTOTAL"), "");
   assert.equal(col(rows[1], "INVOICE_NO"), "");
   assert.equal(col(rows[1], "CUSTOMER_ID"), "");
   assert.equal(col(rows[1], "TOTAL_DUE"), "");
@@ -160,7 +164,7 @@ test("buildInvoiceRows is a single line when there is no tax", () => {
   assert.equal(rows.length, 1);
 });
 
-test("golden: matches the confirmed-working sample import row-for-row (INV-26-100000)", () => {
+test("golden: matches RKL's confirmed-successful import row-for-row (INV-26-100001, with tax)", () => {
   const inv: NormalizedInvoice = {
     id: "INV-26-100000",
     invoiceNumber: "INV-26-100000",
@@ -197,11 +201,14 @@ test("golden: matches the confirmed-working sample import row-for-row (INV-26-10
   assert.equal(col(rows[0], "DEPT_ID"), "FURNITURE");
   assert.equal(col(rows[0], "AMOUNT"), "3070.02");
   assert.equal(col(rows[0], "ARINVOICEITEM_PROJECTID"), "TEST");
+  assert.equal(col(rows[0], "DESCRIPTION"), "Innergy Export");
 
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "ACCT_LABEL"), "Tax");
   assert.equal(col(rows[1], "ACCT_NO"), "33500");
   assert.equal(col(rows[1], "LOCATION_ID"), "20-PA");
   assert.equal(col(rows[1], "AMOUNT"), "184.20");
-  assert.equal(col(rows[1], "SUBTOTAL"), "T");
+  assert.equal(col(rows[1], "DESCRIPTION"), "Sales Tax");
+  // SUBTOTAL blank, per RKL's explicit correction — not "T".
+  assert.equal(col(rows[1], "SUBTOTAL"), "");
 });
