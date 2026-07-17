@@ -78,7 +78,7 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("MEMO"), "Innergy Export");
   assert.equal(col("DESCRIPTION"), "Innergy Export");
   assert.equal(col("ACCT_NO"), "50200");
-  assert.equal(col("ACCT_LABEL"), "50200-Furniture Sales - Taxable");
+  assert.equal(col("ACCT_LABEL"), "50200-Furniture Sales");
   assert.equal(col("LOCATION_ID"), "20-PA");
   assert.equal(col("DEPT_ID"), "FURNITURE");
   // Blank when falling back to FALLBACK_CUSTOMER_ID: the real project belongs
@@ -139,7 +139,7 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   assert.equal(col(rows[0], "LINE_NO"), "1");
   assert.equal(col(rows[0], "AMOUNT"), "1300.00");
   assert.equal(col(rows[0], "ACCT_NO"), "50200");
-  assert.equal(col(rows[0], "ACCT_LABEL"), "50200-Furniture Sales - Taxable");
+  assert.equal(col(rows[0], "ACCT_LABEL"), "50200-Furniture Sales");
   // Tax line: tax amount to 33500, line 2 — header/date fields stay blank.
   // SUBTOTAL stays blank too — RKL confirmed "T" is NOT needed (2026-07-17).
   assert.equal(col(rows[1], "LINE_NO"), "2");
@@ -195,7 +195,7 @@ test("golden: matches RKL's confirmed-successful import row-for-row (INV-26-1000
   assert.equal(col(rows[0], "DUE_DATE"), "08/05/2026");
   assert.equal(col(rows[0], "TOTAL_DUE"), "3254.22");
   assert.equal(col(rows[0], "LINE_NO"), "1");
-  assert.equal(col(rows[0], "ACCT_LABEL"), "50200-Furniture Sales - Taxable");
+  assert.equal(col(rows[0], "ACCT_LABEL"), "50200-Furniture Sales");
   assert.equal(col(rows[0], "ACCT_NO"), "50200");
   assert.equal(col(rows[0], "LOCATION_ID"), "20-PA");
   assert.equal(col(rows[0], "DEPT_ID"), "FURNITURE");

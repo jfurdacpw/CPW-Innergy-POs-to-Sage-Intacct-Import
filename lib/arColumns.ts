@@ -18,9 +18,12 @@ export const AR_REVENUE_ACCT_NO = "50200";
 /**
  * ACCT_LABEL for the revenue line. Must be the exact Sage account label
  * picklist entry — arbitrary text (e.g. just "50300" or "Taxable") fails with
- * AR-0148. Confirmed working value from the sample import.
+ * AR-0148. Verified against Sage's own UI (RKL screenshot, 2026-07-17): the
+ * real picklist entry is "50200-Furniture Sales", with no "- Taxable" suffix —
+ * an earlier sample's label text had the suffix, which doesn't match anything
+ * in the picklist and left the Account Label field blank on import.
  */
-export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales - Taxable";
+export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales";
 
 /** Sales-tax liability account -> ACCT_NO on the separate tax line. */
 export const AR_SALES_TAX_ACCT_NO = "33500";
