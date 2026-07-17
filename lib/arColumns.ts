@@ -201,7 +201,14 @@ export function buildInvoiceRow(
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.DEPT_ID] = AR_DEPT_ID;
   row[COL.AMOUNT] = formatAmount(revenueAmount(inv));
-  row[COL.ARINVOICEITEM_PROJECTID] = inv.projectNumber || "";
+  // Only set when CUSTOMER_ID is the invoice's real customer: Sage requires the
+  // project dimension to belong to (or be a child of) the header CUSTOMER_ID
+  // (error CORE-1255). When customerExternalId is blank and CUSTOMER_ID falls
+  // back to FALLBACK_CUSTOMER_ID, the real project belongs to a different
+  // customer than the fallback, so it would always fail that check.
+  row[COL.ARINVOICEITEM_PROJECTID] = inv.customerExternalId
+    ? inv.projectNumber || ""
+    : "";
 
   return row;
 }

@@ -80,7 +80,9 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("ACCT_LABEL"), "50200-Furniture Sales - Taxable");
   assert.equal(col("LOCATION_ID"), "20-PA");
   assert.equal(col("DEPT_ID"), "FURNITURE");
-  assert.equal(col("ARINVOICEITEM_PROJECTID"), "P-26-1060");
+  // Blank when falling back to FALLBACK_CUSTOMER_ID: the real project belongs
+  // to a different customer than the fallback, which Sage rejects (CORE-1255).
+  assert.equal(col("ARINVOICEITEM_PROJECTID"), "");
   assert.equal(col("ARINVOICEITEM_ARACCOUNT"), "");
   assert.equal(col("TERM_NAME"), "");
   assert.equal(col("ACTION"), "");
@@ -89,6 +91,26 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("DONOTIMPORT"), "");
   // Second ACCT_LABEL column (index 21) always stays blank.
   assert.equal(row[21], "");
+});
+
+test("buildInvoiceRow sets ARINVOICEITEM_PROJECTID when the customer has a real External Id", () => {
+  const inv: NormalizedInvoice = {
+    id: "INV-26-100005",
+    invoiceNumber: "INV-26-100005",
+    customerName: "Sullivan",
+    customerExternalId: "C-00005",
+    projectNumber: "P-26-2000",
+    workOrderNumbers: [],
+    invoiceAmount: 500,
+    dueDate: "2026-08-10",
+    status: "Pending",
+  };
+
+  const row = buildInvoiceRow(inv, { batchTitle: "b" });
+  const col = (name: string) => row[AR_HEADERS.indexOf(name as any)];
+
+  assert.equal(col("CUSTOMER_ID"), "C-00005");
+  assert.equal(col("ARINVOICEITEM_PROJECTID"), "P-26-2000");
 });
 
 const taxableInvoice: NormalizedInvoice = {
