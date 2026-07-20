@@ -32,19 +32,24 @@ export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales - Taxable";
 export const AR_SALES_TAX_ACCT_NO = "33500";
 
 /**
- * ACCT_LABEL for the tax line. "Tax" only exists in Sage's "Subtotal" grid
- * picklist (confirmed via live screenshot, 2026-07-20), not the "Entries"
- * grid's — but SUBTOTAL="T" was tried (2026-07-20 live import) and it drops
- * the tax AMOUNT entirely, reproducing the exact "tax not included" bug RKL
- * hit and fixed on 2026-07-17 by leaving SUBTOTAL blank. The Subtotal grid's
- * own UI shows a Percent column next to Amount, suggesting Subtotal rows are
- * calculated (e.g. % of prior lines) rather than accepting a flat CSV dollar
- * amount — so SUBTOTAL="T" isn't usable here for a fixed tax figure.
- * Confirmed working (correct $, blank Account Label) with SUBTOTAL blank and
- * a real ACCT_NO instead — see buildTaxRow. Getting the tax line's Account
- * Label to populate at all may not be possible via CSV import; ask RKL.
+ * The tax line's ACCT_LABEL stays blank — confirmed there's no valid value
+ * for it. "Tax" only exists in Sage's "Subtotal" grid picklist (live
+ * screenshot, 2026-07-20), not the "Entries" grid's, but:
+ * - SUBTOTAL="T" (needed to use a Subtotal-grid label at all) drops the tax
+ *   AMOUNT entirely on import (live test, 2026-07-20) — reproducing the exact
+ *   "tax not included" bug RKL hit and fixed on 2026-07-17. The Subtotal
+ *   grid's own UI shows a Percent column next to Amount, suggesting Subtotal
+ *   rows are calculated rather than accepting a flat CSV dollar figure.
+ * - "Tax" with SUBTOTAL blank (a plain Entries-grid line, real ACCT_NO=33500)
+ *   hard-errors with AR-0148 "Subtotal account labels are not valid for line
+ *   items" (live import of INV-26-100002, 2026-07-20) — Sage validates the
+ *   label once there's only one ACCT_LABEL column (see buildTaxRow's
+ *   history); it isn't silently accepted the way the earlier duplicate-column
+ *   bug made it appear to be.
+ * There is no Entries-grid picklist value that represents tax at all, so
+ * getting this line's Account Label to populate may not be possible via CSV
+ * import — ask RKL/Sage support rather than trying another label value.
  */
-export const AR_TAX_ACCT_LABEL = "Tax";
 
 /**
  * LOCATION_ID / DEPT_ID hardcoded per user request (2026-07-17) until Innergy
@@ -236,11 +241,12 @@ export function buildInvoiceRow(
  * Build the sales-tax continuation line (LINE_NO 2). Only line-level fields
  * are set — no INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE.
  *
- * SUBTOTAL stays blank and ACCT_NO is a real GL account (33500): confirmed via
- * a live Sage import (2026-07-20) that SUBTOTAL="T" drops the tax AMOUNT
- * entirely — see AR_TAX_ACCT_LABEL's comment. This is the last known-good
- * combination for correct dollar posting; the tax line's Account Label may
- * just not be settable via CSV import at all (open question for RKL).
+ * SUBTOTAL and ACCT_LABEL both stay blank; ACCT_NO is a real GL account
+ * (33500) — this is the last known-good combination for correct dollar
+ * posting, confirmed by two live Sage import failures (2026-07-20): SUBTOTAL="T"
+ * dropped the tax AMOUNT entirely, and ACCT_LABEL="Tax" with SUBTOTAL blank
+ * hard-errored with AR-0148 ("Subtotal account labels are not valid for line
+ * items") — see the comment above AR_SALES_TAX_ACCT_NO.
  */
 function buildTaxRow(tax: number): string[] {
   const row = new Array<string>(ROW_LENGTH).fill("");
@@ -248,7 +254,6 @@ function buildTaxRow(tax: number): string[] {
   row[COL.LINE_NO] = "2";
   row[COL.MEMO] = "Sales Tax";
   row[COL.DESCRIPTION] = "Sales Tax";
-  row[COL.ACCT_LABEL] = AR_TAX_ACCT_LABEL;
   row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.AMOUNT] = formatAmount(tax);
