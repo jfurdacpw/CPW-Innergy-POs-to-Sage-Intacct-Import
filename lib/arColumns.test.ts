@@ -141,17 +141,16 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   assert.equal(col(rows[0], "AMOUNT"), "1300.00");
   assert.equal(col(rows[0], "ACCT_NO"), "50200");
   assert.equal(col(rows[0], "ACCT_LABEL"), "50200-Furniture Sales - Taxable");
-  // Tax line: a Sage "Subtotal" row (SUBTOTAL="T"), line 2 — header/date
-  // fields stay blank. ACCT_NO stays blank too: "Tax" only exists in the
-  // Subtotal grid's Account Label picklist, which doesn't take a separate
-  // GL account number.
+  // Tax line: tax amount to 33500, line 2 — header/date fields stay blank.
+  // SUBTOTAL stays blank: SUBTOTAL="T" was tried (2026-07-20 live import) and
+  // drops the tax AMOUNT entirely, so this is the last known-good combination.
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "AMOUNT"), "78.00");
-  assert.equal(col(rows[1], "ACCT_NO"), "");
+  assert.equal(col(rows[1], "ACCT_NO"), "33500");
   assert.equal(col(rows[1], "ACCT_LABEL"), "Tax");
   assert.equal(col(rows[1], "MEMO"), "Sales Tax");
   assert.equal(col(rows[1], "DESCRIPTION"), "Sales Tax");
-  assert.equal(col(rows[1], "SUBTOTAL"), "T");
+  assert.equal(col(rows[1], "SUBTOTAL"), "");
   assert.equal(col(rows[1], "INVOICE_NO"), "");
   assert.equal(col(rows[1], "CUSTOMER_ID"), "");
   assert.equal(col(rows[1], "TOTAL_DUE"), "");
@@ -167,7 +166,7 @@ test("buildInvoiceRows is a single line when there is no tax", () => {
   assert.equal(rows.length, 1);
 });
 
-test("golden: matches the current best-guess Account-Label fix row-for-row (INV-26-100000, with tax) — NEEDS a live Sage test import to confirm", () => {
+test("golden: matches the current best-guess row-for-row (INV-26-100000, with tax) — imports without erroring; Account Label display on the tax line still unconfirmed", () => {
   const inv: NormalizedInvoice = {
     id: "INV-26-100000",
     invoiceNumber: "INV-26-100000",
@@ -208,11 +207,11 @@ test("golden: matches the current best-guess Account-Label fix row-for-row (INV-
 
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "ACCT_LABEL"), "Tax");
-  assert.equal(col(rows[1], "ACCT_NO"), "");
+  assert.equal(col(rows[1], "ACCT_NO"), "33500");
   assert.equal(col(rows[1], "LOCATION_ID"), "20-PA");
   assert.equal(col(rows[1], "AMOUNT"), "184.20");
   assert.equal(col(rows[1], "DESCRIPTION"), "Sales Tax");
-  // SUBTOTAL="T": needed for the "Tax" Account Label (Subtotal-grid picklist)
-  // to be valid at all. See buildTaxRow's comment for the open risk here.
-  assert.equal(col(rows[1], "SUBTOTAL"), "T");
+  // SUBTOTAL blank: SUBTOTAL="T" was tried (2026-07-20 live import) and
+  // dropped the tax AMOUNT entirely on import. See buildTaxRow's comment.
+  assert.equal(col(rows[1], "SUBTOTAL"), "");
 });

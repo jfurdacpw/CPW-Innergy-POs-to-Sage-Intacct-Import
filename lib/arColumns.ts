@@ -32,14 +32,17 @@ export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales - Taxable";
 export const AR_SALES_TAX_ACCT_NO = "33500";
 
 /**
- * ACCT_LABEL for the tax line. Confirmed via Sage's own UI (live screenshot,
- * 2026-07-20): "Tax" only exists in the separate "Subtotal" grid's Account
- * Label picklist, not the "Entries" grid's — so the tax line must be built as
- * a SUBTOTAL="T" row to use it (see buildTaxRow). NEEDS RE-VERIFICATION via a
- * live Sage import: SUBTOTAL="T" previously caused a different bug (tax amount
- * not included at all) before RKL's 2026-07-17 fix of leaving it blank: that
- * fix may have been masking this same picklist mismatch rather than a genuine
- * problem with the SUBTOTAL mechanism itself.
+ * ACCT_LABEL for the tax line. "Tax" only exists in Sage's "Subtotal" grid
+ * picklist (confirmed via live screenshot, 2026-07-20), not the "Entries"
+ * grid's — but SUBTOTAL="T" was tried (2026-07-20 live import) and it drops
+ * the tax AMOUNT entirely, reproducing the exact "tax not included" bug RKL
+ * hit and fixed on 2026-07-17 by leaving SUBTOTAL blank. The Subtotal grid's
+ * own UI shows a Percent column next to Amount, suggesting Subtotal rows are
+ * calculated (e.g. % of prior lines) rather than accepting a flat CSV dollar
+ * amount — so SUBTOTAL="T" isn't usable here for a fixed tax figure.
+ * Confirmed working (correct $, blank Account Label) with SUBTOTAL blank and
+ * a real ACCT_NO instead — see buildTaxRow. Getting the tax line's Account
+ * Label to populate at all may not be possible via CSV import; ask RKL.
  */
 export const AR_TAX_ACCT_LABEL = "Tax";
 
@@ -230,17 +233,14 @@ export function buildInvoiceRow(
 }
 
 /**
- * Build the sales-tax continuation line (LINE_NO 2) as a Sage "Subtotal" row
- * (SUBTOTAL="T"). Only line-level fields are set — no
- * INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE.
+ * Build the sales-tax continuation line (LINE_NO 2). Only line-level fields
+ * are set — no INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE.
  *
- * SUBTOTAL="T" + ACCT_LABEL="Tax", ACCT_NO left blank: confirmed via a live
- * Sage screenshot (2026-07-20) that "Tax" only exists in the Subtotal grid's
- * Account Label picklist, not the Entries grid's — a plain line (SUBTOTAL
- * blank, real ACCT_NO) can never carry a matching label for tax. NEEDS
- * RE-VERIFICATION via a live import: RKL's 2026-07-17 fix (leaving SUBTOTAL
- * blank) resolved a "tax not included" bug on an earlier SUBTOTAL="T" +
- * ACCT_NO=33500 attempt — unclear yet whether blank ACCT_NO changes that.
+ * SUBTOTAL stays blank and ACCT_NO is a real GL account (33500): confirmed via
+ * a live Sage import (2026-07-20) that SUBTOTAL="T" drops the tax AMOUNT
+ * entirely — see AR_TAX_ACCT_LABEL's comment. This is the last known-good
+ * combination for correct dollar posting; the tax line's Account Label may
+ * just not be settable via CSV import at all (open question for RKL).
  */
 function buildTaxRow(tax: number): string[] {
   const row = new Array<string>(ROW_LENGTH).fill("");
@@ -249,9 +249,9 @@ function buildTaxRow(tax: number): string[] {
   row[COL.MEMO] = "Sales Tax";
   row[COL.DESCRIPTION] = "Sales Tax";
   row[COL.ACCT_LABEL] = AR_TAX_ACCT_LABEL;
+  row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.AMOUNT] = formatAmount(tax);
-  row[COL.SUBTOTAL] = "T";
 
   return row;
 }
