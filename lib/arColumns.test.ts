@@ -141,17 +141,17 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   assert.equal(col(rows[0], "AMOUNT"), "1300.00");
   assert.equal(col(rows[0], "ACCT_NO"), "50200");
   assert.equal(col(rows[0], "ACCT_LABEL"), "50200-Furniture Sales - Taxable");
-  // Tax line: a Sage "Subtotal" row (SUBTOTAL="T"), matching Mary Kay's
-  // manually-entered example invoice — ACCT_NO=33500, ACCT_LABEL="Tax",
-  // and a flat dollar AMOUNT (not a percentage). UNVERIFIED via live import;
-  // see buildTaxRow's comment for the rollback path if this drops the amount.
+  // Tax line: tax amount to 33500, line 2 — header/date fields stay blank.
+  // ACCT_LABEL and SUBTOTAL both stay blank: three separate live-import
+  // attempts (2026-07-20) confirmed there's no combination that both shows a
+  // label and preserves the tax amount. See buildTaxRow's comment.
   assert.equal(col(rows[1], "LINE_NO"), "2");
   assert.equal(col(rows[1], "AMOUNT"), "78.00");
   assert.equal(col(rows[1], "ACCT_NO"), "33500");
-  assert.equal(col(rows[1], "ACCT_LABEL"), "Tax");
+  assert.equal(col(rows[1], "ACCT_LABEL"), "");
   assert.equal(col(rows[1], "MEMO"), "Sales Tax");
   assert.equal(col(rows[1], "DESCRIPTION"), "Sales Tax");
-  assert.equal(col(rows[1], "SUBTOTAL"), "T");
+  assert.equal(col(rows[1], "SUBTOTAL"), "");
   assert.equal(col(rows[1], "INVOICE_NO"), "");
   assert.equal(col(rows[1], "CUSTOMER_ID"), "");
   assert.equal(col(rows[1], "TOTAL_DUE"), "");
@@ -167,7 +167,7 @@ test("buildInvoiceRows is a single line when there is no tax", () => {
   assert.equal(rows.length, 1);
 });
 
-test("golden: matches Mary Kay's manually-entered example row-for-row (INV-26-100000, with tax) — NEEDS a live Sage test import to confirm", () => {
+test("golden: matches the confirmed-good row-for-row (INV-26-100000, with tax); tax line's ACCT_LABEL has no valid value at all", () => {
   const inv: NormalizedInvoice = {
     id: "INV-26-100000",
     invoiceNumber: "INV-26-100000",
@@ -207,13 +207,13 @@ test("golden: matches Mary Kay's manually-entered example row-for-row (INV-26-10
   assert.equal(col(rows[0], "DESCRIPTION"), "Innergy Export");
 
   assert.equal(col(rows[1], "LINE_NO"), "2");
-  assert.equal(col(rows[1], "ACCT_LABEL"), "Tax");
+  assert.equal(col(rows[1], "ACCT_LABEL"), "");
   assert.equal(col(rows[1], "ACCT_NO"), "33500");
   assert.equal(col(rows[1], "LOCATION_ID"), "20-PA");
   assert.equal(col(rows[1], "AMOUNT"), "184.20");
   assert.equal(col(rows[1], "DESCRIPTION"), "Sales Tax");
-  // SUBTOTAL="T": a Sage Subtotal-grid row, matching Mary Kay's manual
-  // example (Account label="Tax", flat dollar Amount, not a percentage).
-  // See buildTaxRow's comment for the rollback path if this drops the amount.
-  assert.equal(col(rows[1], "SUBTOTAL"), "T");
+  // ACCT_LABEL and SUBTOTAL both blank: no Entries-grid label represents tax,
+  // and every SUBTOTAL="T" variant tried drops the AMOUNT. See buildTaxRow's
+  // comment.
+  assert.equal(col(rows[1], "SUBTOTAL"), "");
 });
