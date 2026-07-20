@@ -1,14 +1,17 @@
 /**
  * Sage Intacct AR Invoice import contract.
  *
- * The header row below must match the confirmed-working "SBDG AR Invoices Sample
- * Import" template EXACTLY, in order (46 columns) — including its blank column 5
- * and its two ACCT_LABEL columns (19 and 21; only 19 is ever populated). This
- * layout was verified by a successful Sage import of INV-26-100000 on 2026-07-17.
+ * The header row matches Sage's own official "Accounts Receivable invoices.xls"
+ * template (downloaded directly from Sage, 2026-07-20), trimmed to the columns
+ * this exporter actually populates — no blank sanity-check column, and a single
+ * ACCT_NO/ACCT_LABEL pair (in that order), not the duplicated ACCT_LABEL an
+ * earlier RKL-edited sample had. That duplicate doesn't exist in Sage's real
+ * template and caused Sage to silently ignore the populated label (it read the
+ * second, always-blank occurrence as "the" field) or hard-error with AR-0148 if
+ * both were filled — confirmed via a live Sage test import, 2026-07-20.
  *
- * Because column names alone don't uniquely identify a position (column 5 has no
- * name, and ACCT_LABEL appears twice), rows are built positionally by index
- * rather than through a name-keyed object.
+ * Because rows are built positionally by index, keep this header and COL in
+ * sync with any future reordering.
  */
 import { formatDateMMDDYYYY, formatAmount, EXPORT_MEMO } from "./sageColumns";
 
@@ -17,18 +20,27 @@ export const AR_REVENUE_ACCT_NO = "50200";
 
 /**
  * ACCT_LABEL for the revenue line. Must be the exact Sage account label
- * picklist entry — arbitrary text (e.g. just "50300" or "Taxable") fails with
- * AR-0148. Verified against Sage's own UI (RKL screenshot, 2026-07-17): the
- * real picklist entry is "50200-Furniture Sales", with no "- Taxable" suffix —
- * an earlier sample's label text had the suffix, which doesn't match anything
- * in the picklist and left the Account Label field blank on import.
+ * picklist entry for the "Entries" grid — confirmed via a live screenshot of
+ * Sage's own Account Label dropdown (2026-07-20): the Entries picklist for
+ * account 50200 is "50200-Furniture Sales - Taxable" (WITH the suffix). An
+ * earlier fix removed the suffix based on a paraphrased description of a
+ * different screenshot; this live dropdown enumeration is more authoritative.
  */
-export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales";
+export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales - Taxable";
 
 /** Sales-tax liability account -> ACCT_NO on the separate tax line. */
 export const AR_SALES_TAX_ACCT_NO = "33500";
 
-/** ACCT_LABEL for the tax line — the picklist entry, confirmed working. */
+/**
+ * ACCT_LABEL for the tax line. Confirmed via Sage's own UI (live screenshot,
+ * 2026-07-20): "Tax" only exists in the separate "Subtotal" grid's Account
+ * Label picklist, not the "Entries" grid's — so the tax line must be built as
+ * a SUBTOTAL="T" row to use it (see buildTaxRow). NEEDS RE-VERIFICATION via a
+ * live Sage import: SUBTOTAL="T" previously caused a different bug (tax amount
+ * not included at all) before RKL's 2026-07-17 fix of leaving it blank: that
+ * fix may have been masking this same picklist mismatch rather than a genuine
+ * problem with the SUBTOTAL mechanism itself.
+ */
 export const AR_TAX_ACCT_LABEL = "Tax";
 
 /**
@@ -66,7 +78,6 @@ export const AR_HEADERS = [
   "EXCHANGE_RATE",
   "LINE_NO",
   "MEMO",
-  "ACCT_LABEL",
   "ACCT_NO",
   "ACCT_LABEL",
   "LOCATION_ID",
@@ -111,13 +122,13 @@ const COL = {
   DESCRIPTION: 11,
   LINE_NO: 17,
   MEMO: 18,
-  ACCT_LABEL: 19,
-  ACCT_NO: 20,
-  LOCATION_ID: 22,
-  DEPT_ID: 23,
-  AMOUNT: 25,
-  SUBTOTAL: 26,
-  ARINVOICEITEM_PROJECTID: 41,
+  ACCT_NO: 19,
+  ACCT_LABEL: 20,
+  LOCATION_ID: 21,
+  DEPT_ID: 22,
+  AMOUNT: 24,
+  SUBTOTAL: 25,
+  ARINVOICEITEM_PROJECTID: 40,
 } as const;
 
 const ROW_LENGTH = AR_HEADERS.length;
@@ -219,13 +230,17 @@ export function buildInvoiceRow(
 }
 
 /**
- * Build the sales-tax continuation line (LINE_NO 2). Only line-level fields
- * are set — no INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE — matching the
- * confirmed-working sample exactly.
+ * Build the sales-tax continuation line (LINE_NO 2) as a Sage "Subtotal" row
+ * (SUBTOTAL="T"). Only line-level fields are set — no
+ * INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE.
  *
- * SUBTOTAL deliberately stays blank: RKL confirmed (2026-07-17, INV-26-100001)
- * that leaving column AA/SUBTOTAL blank — not "T" — is what actually imported
- * successfully with correct GL entries.
+ * SUBTOTAL="T" + ACCT_LABEL="Tax", ACCT_NO left blank: confirmed via a live
+ * Sage screenshot (2026-07-20) that "Tax" only exists in the Subtotal grid's
+ * Account Label picklist, not the Entries grid's — a plain line (SUBTOTAL
+ * blank, real ACCT_NO) can never carry a matching label for tax. NEEDS
+ * RE-VERIFICATION via a live import: RKL's 2026-07-17 fix (leaving SUBTOTAL
+ * blank) resolved a "tax not included" bug on an earlier SUBTOTAL="T" +
+ * ACCT_NO=33500 attempt — unclear yet whether blank ACCT_NO changes that.
  */
 function buildTaxRow(tax: number): string[] {
   const row = new Array<string>(ROW_LENGTH).fill("");
@@ -234,9 +249,9 @@ function buildTaxRow(tax: number): string[] {
   row[COL.MEMO] = "Sales Tax";
   row[COL.DESCRIPTION] = "Sales Tax";
   row[COL.ACCT_LABEL] = AR_TAX_ACCT_LABEL;
-  row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.AMOUNT] = formatAmount(tax);
+  row[COL.SUBTOTAL] = "T";
 
   return row;
 }
