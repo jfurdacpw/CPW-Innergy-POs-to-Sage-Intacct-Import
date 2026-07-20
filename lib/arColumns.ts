@@ -32,24 +32,23 @@ export const AR_REVENUE_ACCT_LABEL = "50200-Furniture Sales - Taxable";
 export const AR_SALES_TAX_ACCT_NO = "33500";
 
 /**
- * The tax line's ACCT_LABEL stays blank — confirmed there's no valid value
- * for it. "Tax" only exists in Sage's "Subtotal" grid picklist (live
- * screenshot, 2026-07-20), not the "Entries" grid's, but:
- * - SUBTOTAL="T" (needed to use a Subtotal-grid label at all) drops the tax
- *   AMOUNT entirely on import (live test, 2026-07-20) — reproducing the exact
- *   "tax not included" bug RKL hit and fixed on 2026-07-17. The Subtotal
- *   grid's own UI shows a Percent column next to Amount, suggesting Subtotal
- *   rows are calculated rather than accepting a flat CSV dollar figure.
- * - "Tax" with SUBTOTAL blank (a plain Entries-grid line, real ACCT_NO=33500)
- *   hard-errors with AR-0148 "Subtotal account labels are not valid for line
- *   items" (live import of INV-26-100002, 2026-07-20) — Sage validates the
- *   label once there's only one ACCT_LABEL column (see buildTaxRow's
- *   history); it isn't silently accepted the way the earlier duplicate-column
- *   bug made it appear to be.
- * There is no Entries-grid picklist value that represents tax at all, so
- * getting this line's Account Label to populate may not be possible via CSV
- * import — ask RKL/Sage support rather than trying another label value.
+ * ACCT_LABEL for the tax line, used ONLY on a SUBTOTAL="T" row — matching
+ * Mary Kay's manually-entered example invoice (screenshot, 2026-07-17): a
+ * separate "Subtotal" grid with Account label="Tax", Account auto-showing
+ * "33500--PA Sales Taxes Payable", Amount=78.00 as a flat dollar figure
+ * (Percent left blank/"--"). So Subtotal rows CAN carry a fixed dollar
+ * amount, not just a percentage.
+ *
+ * Earlier live-import attempts using SUBTOTAL="T" dropped the tax AMOUNT
+ * entirely (2026-07-20), but that was tried with ACCT_NO left blank — this
+ * combination (SUBTOTAL="T" + ACCT_NO=33500 + ACCT_LABEL="Tax" together,
+ * matching the manual example exactly) has NOT been tried in the corrected
+ * single-ACCT_LABEL-column header. NEEDS A LIVE SAGE TEST IMPORT before
+ * trusting: if the tax amount is dropped again, revert to the confirmed-good
+ * state tagged `ar-import-confirmed-2026-07-20` (SUBTOTAL/ACCT_LABEL both
+ * blank on the tax line).
  */
+export const AR_TAX_ACCT_LABEL = "Tax";
 
 /**
  * LOCATION_ID / DEPT_ID hardcoded per user request (2026-07-17) until Innergy
@@ -238,15 +237,16 @@ export function buildInvoiceRow(
 }
 
 /**
- * Build the sales-tax continuation line (LINE_NO 2). Only line-level fields
- * are set — no INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE.
+ * Build the sales-tax continuation line (LINE_NO 2) as a Sage "Subtotal" row,
+ * matching Mary Kay's manually-entered example invoice exactly: ACCT_NO=33500,
+ * ACCT_LABEL="Tax", SUBTOTAL="T". Only line-level fields are set — no
+ * INVOICE_NO/CUSTOMER_ID/dates/TOTAL_DUE.
  *
- * SUBTOTAL and ACCT_LABEL both stay blank; ACCT_NO is a real GL account
- * (33500) — this is the last known-good combination for correct dollar
- * posting, confirmed by two live Sage import failures (2026-07-20): SUBTOTAL="T"
- * dropped the tax AMOUNT entirely, and ACCT_LABEL="Tax" with SUBTOTAL blank
- * hard-errored with AR-0148 ("Subtotal account labels are not valid for line
- * items") — see the comment above AR_SALES_TAX_ACCT_NO.
+ * UNVERIFIED (2026-07-20) — needs a live Sage test import. If the tax AMOUNT
+ * gets dropped again (as it did in an earlier attempt with ACCT_NO left
+ * blank), revert to the confirmed-good state tagged
+ * `ar-import-confirmed-2026-07-20` — SUBTOTAL and ACCT_LABEL both blank here,
+ * ACCT_NO=33500 only. See the comment above AR_TAX_ACCT_LABEL.
  */
 function buildTaxRow(tax: number): string[] {
   const row = new Array<string>(ROW_LENGTH).fill("");
@@ -255,8 +255,10 @@ function buildTaxRow(tax: number): string[] {
   row[COL.MEMO] = "Sales Tax";
   row[COL.DESCRIPTION] = "Sales Tax";
   row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
+  row[COL.ACCT_LABEL] = AR_TAX_ACCT_LABEL;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.AMOUNT] = formatAmount(tax);
+  row[COL.SUBTOTAL] = "T";
 
   return row;
 }
