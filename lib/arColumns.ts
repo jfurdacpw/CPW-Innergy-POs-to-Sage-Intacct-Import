@@ -66,6 +66,19 @@ export const AR_DEPT_ID = "FURNITURE";
  */
 export const FALLBACK_CUSTOMER_ID = "C-00005";
 
+/**
+ * Fallback ARINVOICEITEM_PROJECTID paired with FALLBACK_CUSTOMER_ID above.
+ * "TEST" is the project Mary Kay (RKL) used in her working test import
+ * (confirmed via her emailed Sage GL journal screenshot, 2026-07-20: every
+ * line — revenue AND tax — posted with Project "TEST--TEST" under Sullivan/
+ * C-00005). Using it here whenever CUSTOMER_ID had to fall back keeps the
+ * project consistent with that customer, avoiding CORE-1255. NOTE: that
+ * screenshot was taken in Sage's TEST/sandbox company, not necessarily
+ * production — confirm "TEST" exists as a real project under Sullivan in
+ * production Sage before relying on this for real invoices.
+ */
+export const FALLBACK_PROJECT_NUMBER = "TEST";
+
 export const AR_HEADERS = [
   "DONOTIMPORT",
   "BATCH_TITLE",
@@ -196,6 +209,22 @@ function revenueAmount(inv: NormalizedInvoice): number {
 }
 
 /**
+ * ARINVOICEITEM_PROJECTID for both the revenue and tax lines. Sage requires
+ * the project to belong to (or be a child of) the header CUSTOMER_ID (error
+ * CORE-1255). When customerExternalId is a real, non-fallback match, use the
+ * invoice's real project. When it's blank and CUSTOMER_ID falls back to
+ * FALLBACK_CUSTOMER_ID, use FALLBACK_PROJECT_NUMBER (which belongs to that
+ * same fallback customer) instead of leaving it blank — Mary Kay (RKL)
+ * confirmed via email 2026-07-20 that Sage drops the tax line entirely
+ * unless every line carries a populated Project.
+ */
+function resolveProjectId(inv: NormalizedInvoice): string {
+  return inv.customerExternalId
+    ? inv.projectNumber || ""
+    : FALLBACK_PROJECT_NUMBER;
+}
+
+/**
  * Build the invoice's revenue line (LINE_NO 1). This is the only line that
  * carries the header-level fields (BATCH_TITLE, INVOICE_NO, CUSTOMER_ID,
  * dates, TOTAL_DUE) — matching the confirmed-working sample, where the
@@ -225,14 +254,7 @@ export function buildInvoiceRow(
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.DEPT_ID] = AR_DEPT_ID;
   row[COL.AMOUNT] = formatAmount(revenueAmount(inv));
-  // Only set when CUSTOMER_ID is the invoice's real customer: Sage requires the
-  // project dimension to belong to (or be a child of) the header CUSTOMER_ID
-  // (error CORE-1255). When customerExternalId is blank and CUSTOMER_ID falls
-  // back to FALLBACK_CUSTOMER_ID, the real project belongs to a different
-  // customer than the fallback, so it would always fail that check.
-  row[COL.ARINVOICEITEM_PROJECTID] = inv.customerExternalId
-    ? inv.projectNumber || ""
-    : "";
+  row[COL.ARINVOICEITEM_PROJECTID] = resolveProjectId(inv);
 
   return row;
 }
@@ -247,11 +269,8 @@ export function buildInvoiceRow(
  * live Sage import failures trying to get this line's Account Label to show
  * — see the comment above AR_SALES_TAX_ACCT_NO.
  *
- * ARINVOICEITEM_PROJECTID is set here too, mirroring the revenue line
- * (blank unless customerExternalId is a real, non-fallback match — see the
- * CORE-1255 comment on buildInvoiceRow). Mary Kay (RKL) confirmed via email
- * 2026-07-20 that Sage dropped the tax line entirely until the Project
- * column was populated on the import.
+ * ARINVOICEITEM_PROJECTID is set here too, matching the revenue line — see
+ * resolveProjectId.
  */
 function buildTaxRow(inv: NormalizedInvoice, tax: number): string[] {
   const row = new Array<string>(ROW_LENGTH).fill("");
@@ -262,9 +281,7 @@ function buildTaxRow(inv: NormalizedInvoice, tax: number): string[] {
   row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.AMOUNT] = formatAmount(tax);
-  row[COL.ARINVOICEITEM_PROJECTID] = inv.customerExternalId
-    ? inv.projectNumber || ""
-    : "";
+  row[COL.ARINVOICEITEM_PROJECTID] = resolveProjectId(inv);
 
   return row;
 }

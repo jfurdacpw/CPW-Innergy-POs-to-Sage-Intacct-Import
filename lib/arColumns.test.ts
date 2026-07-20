@@ -84,9 +84,12 @@ test("buildInvoiceRow maps invoice fields to the correct columns", () => {
   assert.equal(col("ACCT_LABEL"), "50200-Furniture Sales - Taxable");
   assert.equal(col("LOCATION_ID"), "20-PA");
   assert.equal(col("DEPT_ID"), "FURNITURE");
-  // Blank when falling back to FALLBACK_CUSTOMER_ID: the real project belongs
-  // to a different customer than the fallback, which Sage rejects (CORE-1255).
-  assert.equal(col("ARINVOICEITEM_PROJECTID"), "");
+  // Falls back to FALLBACK_PROJECT_NUMBER ("TEST") when falling back to
+  // FALLBACK_CUSTOMER_ID: the invoice's real project belongs to a different
+  // customer than the fallback, which Sage rejects (CORE-1255) — but "TEST"
+  // belongs to the fallback customer itself (Mary Kay's confirmed GL
+  // screenshot, 2026-07-20), so it's safe to use here instead of blank.
+  assert.equal(col("ARINVOICEITEM_PROJECTID"), "TEST");
   assert.equal(col("ARINVOICEITEM_ARACCOUNT"), "");
   assert.equal(col("TERM_NAME"), "");
   assert.equal(col("ACTION"), "");
@@ -172,6 +175,22 @@ test("buildInvoiceRows sets ARINVOICEITEM_PROJECTID on the tax line too, when th
 
   assert.equal(col(rows[0], "ARINVOICEITEM_PROJECTID"), "P-26-2000");
   assert.equal(col(rows[1], "ARINVOICEITEM_PROJECTID"), "P-26-2000");
+});
+
+test("buildInvoiceRows uses FALLBACK_PROJECT_NUMBER on both lines when the customer has no External Id", () => {
+  const rows = buildInvoiceRows(
+    { ...taxableInvoice, customerExternalId: "", projectNumber: "P-26-2000" },
+    { batchTitle: "b", exportDate: new Date(2026, 6, 6) }
+  );
+  const col = (r: string[], name: string) => r[AR_HEADERS.indexOf(name as any)];
+
+  // Real project (P-26-2000) is ignored here — it belongs to a different
+  // customer than the FALLBACK_CUSTOMER_ID this invoice's CUSTOMER_ID falls
+  // back to, so using it would hit CORE-1255. "TEST" belongs to the fallback
+  // customer itself (Mary Kay's confirmed GL screenshot, 2026-07-20).
+  assert.equal(col(rows[0], "CUSTOMER_ID"), "C-00005");
+  assert.equal(col(rows[0], "ARINVOICEITEM_PROJECTID"), "TEST");
+  assert.equal(col(rows[1], "ARINVOICEITEM_PROJECTID"), "TEST");
 });
 
 test("buildInvoiceRows is a single line when there is no tax", () => {
