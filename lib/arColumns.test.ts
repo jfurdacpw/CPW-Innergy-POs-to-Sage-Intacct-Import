@@ -157,6 +157,21 @@ test("buildInvoiceRows splits sales tax onto a second line", () => {
   assert.equal(col(rows[1], "TOTAL_DUE"), "");
   assert.equal(col(rows[1], "DEPT_ID"), "");
   assert.equal(col(rows[1], "LOCATION_ID"), "20-PA");
+  // Tax line gets ARINVOICEITEM_PROJECTID too, matching the revenue line —
+  // RKL (Mary Kay) confirmed Sage dropped the tax line entirely until the
+  // Project column was populated on the import (email, 2026-07-20).
+  assert.equal(col(rows[1], "ARINVOICEITEM_PROJECTID"), "");
+});
+
+test("buildInvoiceRows sets ARINVOICEITEM_PROJECTID on the tax line too, when the customer has a real External Id", () => {
+  const rows = buildInvoiceRows(
+    { ...taxableInvoice, projectNumber: "P-26-2000" },
+    { batchTitle: "b", exportDate: new Date(2026, 6, 6) }
+  );
+  const col = (r: string[], name: string) => r[AR_HEADERS.indexOf(name as any)];
+
+  assert.equal(col(rows[0], "ARINVOICEITEM_PROJECTID"), "P-26-2000");
+  assert.equal(col(rows[1], "ARINVOICEITEM_PROJECTID"), "P-26-2000");
 });
 
 test("buildInvoiceRows is a single line when there is no tax", () => {
@@ -211,6 +226,7 @@ test("golden: matches the confirmed-good row-for-row (INV-26-100000, with tax); 
   assert.equal(col(rows[1], "ACCT_NO"), "33500");
   assert.equal(col(rows[1], "LOCATION_ID"), "20-PA");
   assert.equal(col(rows[1], "AMOUNT"), "184.20");
+  assert.equal(col(rows[1], "ARINVOICEITEM_PROJECTID"), "TEST");
   assert.equal(col(rows[1], "DESCRIPTION"), "Sales Tax");
   // ACCT_LABEL and SUBTOTAL both blank: no Entries-grid label represents tax,
   // and every SUBTOTAL="T" variant tried drops the AMOUNT. See buildTaxRow's

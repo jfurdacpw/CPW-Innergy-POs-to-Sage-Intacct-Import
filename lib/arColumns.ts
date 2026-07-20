@@ -246,8 +246,14 @@ export function buildInvoiceRow(
  * posting (git tag `ar-import-confirmed-2026-07-20`), after three separate
  * live Sage import failures trying to get this line's Account Label to show
  * — see the comment above AR_SALES_TAX_ACCT_NO.
+ *
+ * ARINVOICEITEM_PROJECTID is set here too, mirroring the revenue line
+ * (blank unless customerExternalId is a real, non-fallback match — see the
+ * CORE-1255 comment on buildInvoiceRow). Mary Kay (RKL) confirmed via email
+ * 2026-07-20 that Sage dropped the tax line entirely until the Project
+ * column was populated on the import.
  */
-function buildTaxRow(tax: number): string[] {
+function buildTaxRow(inv: NormalizedInvoice, tax: number): string[] {
   const row = new Array<string>(ROW_LENGTH).fill("");
 
   row[COL.LINE_NO] = "2";
@@ -256,6 +262,9 @@ function buildTaxRow(tax: number): string[] {
   row[COL.ACCT_NO] = AR_SALES_TAX_ACCT_NO;
   row[COL.LOCATION_ID] = AR_LOCATION_ID;
   row[COL.AMOUNT] = formatAmount(tax);
+  row[COL.ARINVOICEITEM_PROJECTID] = inv.customerExternalId
+    ? inv.projectNumber || ""
+    : "";
 
   return row;
 }
@@ -270,7 +279,7 @@ export function buildInvoiceRows(
 ): string[][] {
   const rows = [buildInvoiceRow(inv, opts)];
   const tax = inv.salesTax ?? 0;
-  if (tax > 0.005) rows.push(buildTaxRow(tax));
+  if (tax > 0.005) rows.push(buildTaxRow(inv, tax));
   return rows;
 }
 
