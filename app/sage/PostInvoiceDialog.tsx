@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   blankSageInvoiceLine,
+  draftNeedsAccountOverride,
   sageInvoicePayload,
   validateSageInvoiceDraft,
   type SageInvoiceDraft,
@@ -39,6 +40,7 @@ export default function PostInvoiceDialog({
 
   const problems = useMemo(() => validateSageInvoiceDraft(draft), [draft]);
   const payload = useMemo(() => sageInvoicePayload(draft), [draft]);
+  const needsOverride = useMemo(() => draftNeedsAccountOverride(draft), [draft]);
 
   const total = draft.lines.reduce(
     (sum, l) => sum + (parseFloat(l.txnAmount) || 0),
@@ -230,6 +232,20 @@ export default function PostInvoiceDialog({
             .csv export does for tax (33500, label blank). Same GL effect: AR debit =
             revenue + tax. To reproduce a Subtotals-grid row, enter it in Sage by
             hand.
+          </div>
+        )}
+
+        {needsOverride && (
+          <div className="notice">
+            <strong>This will likely be refused.</strong> A line names a GL account
+            with no account label to derive it from, which Sage treats as a{" "}
+            <strong>GL account override</strong> — currently not permitted for API
+            calls (&ldquo;requires configuration changes or user permissions&hellip;
+            enable GL account override&rdquo;), even though the .csv import route does
+            exactly this. Two ways to unblock, both in Sage: enable GL account
+            override under Configure Accounts Receivable, or create a{" "}
+            <em>non-subtotal</em> account label pointing at that account and use it
+            here. Lines that already carry a label post fine.
           </div>
         )}
 

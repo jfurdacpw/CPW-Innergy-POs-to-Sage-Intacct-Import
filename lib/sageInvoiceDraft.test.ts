@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   blankSageInvoiceDraft,
+  draftNeedsAccountOverride,
   sageInvoiceDraftFromDetail,
   sageInvoicePayload,
   validateSageInvoiceDraft,
@@ -43,10 +44,11 @@ test("payload nests refs and dimensions the way Sage expects", () => {
 
   const line = payload.lines[0];
   assert.equal(line.txnAmount, "3070.02");
-  assert.deepEqual(line.glAccount, { id: "50200" });
-  // The AR control account rides on overrideOffsetGLAccount, not a top-level field.
-  assert.deepEqual(line.overrideOffsetGLAccount, { id: "12100" });
   assert.deepEqual(line.accountLabel, { id: "50200-Furniture Sales - Taxable" });
+  // A labelled line must NOT name accounts — that reads as a GL account override,
+  // which Sage refuses for API calls. The label implies gl 50200 / offset 12100.
+  assert.equal("glAccount" in line, false);
+  assert.equal("overrideOffsetGLAccount" in line, false);
   assert.deepEqual(line.dimensions, {
     department: { id: "FURNITURE" },
     location: { id: "20-PA" },
@@ -76,17 +78,21 @@ test("empty optional fields are omitted entirely", () => {
 });
 
 test("a two-line invoice keeps both lines, tax line included", () => {
+  // The tax line names 33500 with no label — the shape every CSV-imported invoice
+  // in the imp company uses for tax (gl 33500, ACCT_LABEL blank).
   const draft = sampleDraft();
   draft.lines.push({
     ...draft.lines[0],
     txnAmount: "184.20",
     memo: "Sales Tax",
     glAccountId: "33500",
+    accountLabelId: "",
   });
 
   const payload = sageInvoicePayload(draft) as any;
   assert.equal(payload.lines.length, 2);
   assert.deepEqual(payload.lines[1].glAccount, { id: "33500" });
+  assert.equal("accountLabel" in payload.lines[1], false);
   assert.equal(payload.lines[1].memo, "Sales Tax");
 });
 
@@ -173,6 +179,33 @@ test("isSubtotal is never sent — Sage rejects it as read-only", () => {
   for (const line of payload.lines) {
     assert.equal("isSubtotal" in line, false);
   }
+});
+
+test("an unlabelled line does name its accounts, and is flagged as an override", () => {
+  // Without a label there is nothing to derive the accounts from, so they are sent —
+  // and the caller is warned, because Sage currently refuses the override.
+  const draft = sampleDraft();
+  draft.lines[0].accountLabelId = "";
+
+  const line = (sageInvoicePayload(draft) as any).lines[0];
+  assert.deepEqual(line.glAccount, { id: "50200" });
+  assert.deepEqual(line.overrideOffsetGLAccount, { id: "12100" });
+  assert.equal(draftNeedsAccountOverride(draft), true);
+
+  // A fully labelled draft needs no override.
+  assert.equal(draftNeedsAccountOverride(sampleDraft()), false);
+});
+
+test("a tax line always counts as an override — every tax label is a subtotal label", () => {
+  const draft = sampleDraft();
+  draft.lines.push({
+    ...draft.lines[0],
+    txnAmount: "78.00",
+    glAccountId: "33500",
+    accountLabelId: "Tax",
+    kind: "subtotal",
+  });
+  assert.equal(draftNeedsAccountOverride(draft), true);
 });
 
 test("a designated line drops its account label but keeps its GL account", () => {

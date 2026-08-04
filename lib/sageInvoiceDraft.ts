@@ -211,12 +211,24 @@ export function sageInvoicePayload(
     description: str(draft.description) || undefined,
     referenceNumber: str(draft.referenceNumber) || undefined,
     state: draft.state,
-    lines: draft.lines.map((line) =>
-      compact({
+    lines: draft.lines.map((line) => {
+      // Naming a GL account directly IS a GL account override, and Sage refuses it
+      // without the config/permission for it:
+      //   "You are trying to add data to Intacct that requires configuration changes
+      //    or user permissions ... enable GL account override"
+      // An account label already implies both accounts (e.g.
+      // "50200-Furniture Sales - Taxable" -> gl 50200, offset 12100), so when a
+      // usable label is present the accounts are left out and no override is asked
+      // for. They are only sent when there is no label to derive them from.
+      const usesLabel = !line.kind && Boolean(str(line.accountLabelId));
+
+      return compact({
         txnAmount: str(line.txnAmount),
         memo: str(line.memo) || undefined,
-        glAccount: ref(line.glAccountId),
-        overrideOffsetGLAccount: ref(line.offsetGLAccountId),
+        glAccount: usesLabel ? undefined : ref(line.glAccountId),
+        overrideOffsetGLAccount: usesLabel
+          ? undefined
+          : ref(line.offsetGLAccountId),
         // A designated subtotal/tax line drops its account label. Both routes to a
         // real Subtotals-grid row are closed (see SageLineKind), and a subtotal
         // label on a line item is itself rejected:
@@ -227,9 +239,23 @@ export function sageInvoicePayload(
         // Never sent: Sage answers
         //   REST-1050 IA.READ_ONLY_FIELD "/lines/2/isSubtotal is a read-only field"
         dimensions: dimensionsFor(line),
-      })
-    ),
+      });
+    }),
   });
+}
+
+/**
+ * Does this draft need the GL-account-override config/permission that Sage currently
+ * refuses? True when any line names accounts without a label to derive them from —
+ * which is the case for a tax line, since every tax account label in the imp company
+ * is a subtotal label and those are invalid on line items.
+ */
+export function draftNeedsAccountOverride(draft: SageInvoiceDraft): boolean {
+  return draft.lines.some(
+    (line) =>
+      (line.kind || !str(line.accountLabelId)) &&
+      (Boolean(str(line.glAccountId)) || Boolean(str(line.offsetGLAccountId)))
+  );
 }
 
 /** What Sage requires before it will accept a POST. */

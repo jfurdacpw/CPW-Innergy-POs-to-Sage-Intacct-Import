@@ -365,6 +365,47 @@ both lines and its 1378.00 total). A true Subtotals-grid row has to be entered i
 if that ever becomes a hard requirement, the untried avenues are the legacy XML API and an Order
 Entry sales document with a subtotal template — ask RKL before building either.
 
+#### GL account override: the API is more restricted than the CSV import
+
+Naming a GL account on a line **is** a GL account override, and Sage refuses it for these API
+calls:
+
+```
+AR-0279 — "Currently, we cannot create the transaction"
+        — "You are trying to add data to Intacct that requires configuration changes or user
+           permissions ... enable GL account override ... allow AP or AR account override"
+```
+
+The **.csv import route is allowed to do exactly this** — every CSV-imported invoice in the imp
+company books tax as `gl 33500` with a blank label, and the earliest ones (33, 34) name 50200
+with no label either. Same user, different door: the file import bypasses a restriction the REST
+call is held to.
+
+So `sageInvoicePayload()` avoids the override wherever it can: **when a line carries an account
+label, the accounts are not sent at all**, since the label already implies them
+(`50200-Furniture Sales - Taxable` → gl 50200, offset 12100). Accounts are sent only when there
+is no label to derive them from — and `draftNeedsAccountOverride()` flags exactly that case, so
+the dialog warns before posting instead of surfacing a 422.
+
+That leaves tax lines genuinely blocked, because **every tax label in this company is a subtotal
+label**, and those are invalid on line items:
+
+| label | GL | offset | isSubtotal |
+|---|---|---|---|
+| `50200-Furniture Sales - Taxable` | 50200 | 12100 | false |
+| `50300` / `50300NT` / `70540 Shop Supplies` | 50300 / 70540 | 12100 / – | false |
+| `Subtotal` / `Tax` / `Tax-NY` / `Taxable` | 33500 / 33502 | 12100 | **true** |
+
+Two ways to unblock a taxed invoice via the API, both configuration in Sage rather than code:
+
+1. **Create a non-subtotal account label for 33500** (e.g. `33500-Sales Tax`, `isSubtotal` false)
+   and use it on the tax line. No permission change, and it keeps every line label-derived.
+2. **Enable GL account override** under Configure Accounts Receivable, or grant the user AR
+   account override permission — which also makes raw-account lines work generally.
+
+Option 1 is the narrower change. Until one of them is done, single-line (untaxed) invoices post
+through the API and taxed ones do not.
+
 > **Not yet exercised against live Sage.** The payload builder, clone mapping and subtotal
 > designation are unit tested and modelled on real posted invoices, but no invoice has actually
 > been created through this path yet — the first real Clone → Post is the test. Expect the
