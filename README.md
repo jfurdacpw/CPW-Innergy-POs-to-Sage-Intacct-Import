@@ -289,16 +289,25 @@ field name changes.
 ## Deploy to Vercel
 
 1. Push this repo to GitHub and import it in Vercel (framework auto-detected as Next.js).
-2. Add `INNERGY_API_KEY` (and optionally `INNERGY_BASE_URL`) as Project → Settings →
-   Environment Variables.
-3. Deploy, then smoke-test the live URL.
+2. Set the env vars from the table above as Project → Settings → Environment Variables.
+   The four `AUTH_*` vars are required — **without `AUTH_SECRET` every page 500s**, so add
+   them before the first deploy of the auth gate, not after.
+3. Add the production callback to the Azure app registration:
+   `https://<app>.vercel.app/api/auth/callback/microsoft-entra-id`. Microsoft only validates
+   `redirect_uri` *after* the user enters credentials, so a missing one cannot be detected by
+   probing — it shows up as a failed login.
+4. Deploy, then smoke-test: an unauthenticated `GET /` should 307 to `/login` and every
+   `/api/*` route should return 401 JSON.
 
-The **Sage API tab is local-only for now**: it needs `SAGE_ACCESS_TOKEN` (plus
-`SAGE_ENTITY_ID`) in the Vercel env, and since a pasted token dies every 12 hours, deploying it
-means re-pasting a token into Vercel twice a day. Treat the tab as a dev tool until the
-authorization-code flow (or a Web Services user for client credentials) lands. Without those
-vars set, `/sage` loads and its two API routes return an error — the rest of the app is
-unaffected.
+**Verified on production (2026-08-04):** `/`, `/invoices`, `/sage` redirect to `/login`;
+`/api/invoices`, `/api/purchase-orders`, `/api/sage/*` all return 401; and
+`/api/auth/signin/microsoft-entra-id` redirects to the CPW tenant with the correct client id
+and production callback.
+
+`SAGE_ACCESS_TOKEN` is set on Production, Preview and Development, so the Sage tab works on
+the live URL — but **a pasted token dies every 12 hours**, so expect the tab to start erroring
+until a fresh token is pasted into Vercel. That's the cost of the interim auth mode; the
+authorization-code flow (or a Web Services user for client credentials) is what removes it.
 
 > Access is controlled by Microsoft sign-in — see the section below. Vercel's own deployment
 > protection cannot cover production on this plan (the API returns
