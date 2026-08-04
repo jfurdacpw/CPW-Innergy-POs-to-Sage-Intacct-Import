@@ -188,14 +188,21 @@ function safeJson(text: string): unknown {
 }
 
 /**
- * Turn an Intacct error body into a readable one-liner. Intacct returns
- * `{"ia::error": { code, message, supportId, details: [{ code, message, ... }] }}`
- * and the useful sentence is usually inside `details[]`, so it is NOT truncated
- * here — the exact text is what makes these failures diagnosable.
+ * Pull the `ia::error` object out of a response body. It sits at the top level on
+ * some failures and nested under `ia::result` on others (the query service does the
+ * latter), so both are checked — miss one and the readable message is lost.
+ */
+function extractError(body: any): any {
+  return body?.["ia::error"] ?? body?.["ia::result"]?.["ia::error"];
+}
+
+/**
+ * Turn an Intacct error body into a readable one-liner. The useful sentence is
+ * usually inside `details[]` (e.g. "The totalDueTxnAmount field does not exist"),
+ * so it is NOT truncated here — the exact text is what makes failures diagnosable.
  */
 function describeError(text: string): string {
-  const body = safeJson(text) as any;
-  const err = body?.["ia::error"];
+  const err = extractError(safeJson(text));
   if (!err) return text.slice(0, 1000);
 
   const parts: string[] = [];
@@ -260,7 +267,7 @@ async function sageFetch<T>(path: string, init: SageRequest = {}): Promise<T> {
     throw new SageError(
       `Sage ${method} ${path} returned ${res.status}: ${describeError(text)}`,
       res.status,
-      (safeJson(text) as any)?.["ia::error"] ?? safeJson(text)
+      extractError(safeJson(text)) ?? safeJson(text)
     );
   }
 

@@ -239,5 +239,12 @@ field name changes.
    Environment Variables.
 3. Deploy, then smoke-test the live URL.
 
+The **Sage API tab is local-only for now**: it needs `SAGE_ACCESS_TOKEN` (plus
+`SAGE_ENTITY_ID`) in the Vercel env, and since a pasted token dies every 12 hours, deploying it
+means re-pasting a token into Vercel twice a day. Treat the tab as a dev tool until the
+authorization-code flow (or a Web Services user for client credentials) lands. Without those
+vars set, `/sage` loads and its two API routes return an error — the rest of the app is
+unaffected.
+
 > Note: the app has **no authentication** — keep the URL internal. The Innergy key is only ever
 > used server-side.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SageInvoice, SageInvoiceList } from "@/lib/sage";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -49,11 +49,24 @@ export default function SagePage() {
   const [showRaw, setShowRaw] = useState(false);
   const [entity, setEntity] = useState("20");
 
+  /**
+   * The picker seeds itself from the server's SAGE_ENTITY_ID so the two defaults
+   * can't diverge — but only on the first status call, so re-testing the connection
+   * never discards the entity the user picked. A ref, not state, to keep
+   * checkConnection stable.
+   */
+  const entitySeeded = useRef(false);
+
   const checkConnection = useCallback(async () => {
     setChecking(true);
     try {
       const res = await fetch("/api/sage/status");
-      setStatus(await res.json());
+      const body: Status = await res.json();
+      setStatus(body);
+      if (!entitySeeded.current) {
+        setEntity(body.config?.defaultEntityId ?? "");
+        entitySeeded.current = true;
+      }
     } catch (e) {
       setStatus({
         ok: false,
