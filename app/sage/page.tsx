@@ -10,17 +10,26 @@ const currency = new Intl.NumberFormat("en-US", {
 
 type Status = {
   ok: boolean;
-  expiresAt?: string;
+  expiresAt?: string | null;
   error?: string;
   details?: unknown;
   config?: {
     baseUrl: string;
+    authMode: string;
     userId: string;
     companyId: string;
-    entityId: string | null;
+    defaultEntityId: string | null;
     configured: boolean;
   };
 };
+
+/** Entity choices: top level plus the three sub-entities. */
+const ENTITIES = [
+  { value: "", label: "Top level (all entities)" },
+  { value: "10", label: "10" },
+  { value: "20", label: "20" },
+  { value: "30", label: "30" },
+];
 
 /** Dates come back as YYYY-MM-DD (or ISO) — show them as-is minus any time part. */
 function shortDate(value: string): string {
@@ -38,6 +47,7 @@ export default function SagePage() {
   const [errorDetails, setErrorDetails] = useState<unknown>(undefined);
   const [query, setQuery] = useState("");
   const [showRaw, setShowRaw] = useState(false);
+  const [entity, setEntity] = useState("20");
 
   const checkConnection = useCallback(async () => {
     setChecking(true);
@@ -59,7 +69,9 @@ export default function SagePage() {
     setError(null);
     setErrorDetails(undefined);
     try {
-      const res = await fetch("/api/sage/invoices");
+      const res = await fetch(
+        `/api/sage/invoices?entity=${encodeURIComponent(entity)}`
+      );
       const body = await res.json();
       if (!res.ok) {
         setErrorDetails(body.details);
@@ -72,7 +84,7 @@ export default function SagePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [entity]);
 
   useEffect(() => {
     checkConnection();
@@ -123,23 +135,29 @@ export default function SagePage() {
                 </span>
               </div>
               <div>
+                <label>Auth mode</label>
+                <span>
+                  {status.config?.authMode === "pasted-token"
+                    ? "Pasted token (12h)"
+                    : "Client credentials"}
+                </span>
+              </div>
+              <div>
                 <label>Company</label>
                 <span>{status.config?.companyId || "—"}</span>
               </div>
               <div>
-                <label>Web Services user</label>
-                <span>{status.config?.userId || "—"}</span>
-              </div>
-              <div>
-                <label>Entity</label>
-                <span>{status.config?.entityId || "top level"}</span>
+                <label>Default entity</label>
+                <span>{status.config?.defaultEntityId || "top level"}</span>
               </div>
               <div>
                 <label>Token expires</label>
                 <span>
                   {status.expiresAt
                     ? new Date(status.expiresAt).toLocaleString()
-                    : "—"}
+                    : status.ok
+                      ? "unknown (pasted token)"
+                      : "—"}
                 </span>
               </div>
               <div>
@@ -165,9 +183,25 @@ export default function SagePage() {
       <section className="card">
         <div className="card-head">
           <h2>AR invoices in Sage</h2>
-          <button className="primary" onClick={loadInvoices} disabled={loading}>
-            {loading ? "Loading…" : invoices.length ? "Refresh" : "Load invoices"}
-          </button>
+          <div className="head-actions">
+            <label className="inline-field">
+              Entity
+              <select
+                value={entity}
+                onChange={(e) => setEntity(e.target.value)}
+                disabled={loading}
+              >
+                {ENTITIES.map((e) => (
+                  <option key={e.value} value={e.value}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="primary" onClick={loadInvoices} disabled={loading}>
+              {loading ? "Loading…" : invoices.length ? "Refresh" : "Load invoices"}
+            </button>
+          </div>
         </div>
 
         {error && <div className="error">{error}</div>}
@@ -199,7 +233,8 @@ export default function SagePage() {
               Show raw response
             </label>
             <span className="meta">
-              {filtered.length} of {invoices.length} · via {list.source}
+              {filtered.length} of {invoices.length} · via {list.source} · entity{" "}
+              {list.entity || "top level"}
             </span>
           </div>
         )}

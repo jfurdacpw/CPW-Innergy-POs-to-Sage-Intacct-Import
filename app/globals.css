@@ -298,6 +298,32 @@ button.ghost {
   font-size: 16px;
 }
 
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.inline-field select {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
 .kv {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

@@ -1,16 +1,22 @@
 /**
  * Server-only Sage Intacct REST API v1 client.
  *
- * IMPORTANT: this module reads SAGE_CLIENT_SECRET and mints access tokens. It must
+ * IMPORTANT: this module reads SAGE_CLIENT_SECRET / SAGE_ACCESS_TOKEN. It must
  * never be imported into a client component — only from route handlers under
  * app/api. Access tokens never leave the server.
  *
- * Auth: OAuth 2.0 client credentials (server-to-server). POST /oauth2/token with
- * client_id + client_secret + username ("wsUser@companyId"). Tokens last 12h; we
- * cache one in module memory and re-mint a minute before expiry.
+ * Auth, two modes:
+ *  1. SAGE_ACCESS_TOKEN set — use that token as-is. This is the current setup: our
+ *     registered app uses the user-facing authorization-code workflow, so the token
+ *     is minted by hand (Postman) and pasted in. Intacct tokens last 12h, so this
+ *     needs re-pasting; the browser-login flow replaces it.
+ *  2. Otherwise, client credentials: POST /oauth2/token with client_id +
+ *     client_secret + username ("wsUser@companyId"), cached in module memory and
+ *     re-minted a minute before expiry. Needs a Web Services user, which does not
+ *     exist yet.
  *
- * Which Sage company you hit is decided by the companyId inside SAGE_WS_USER, not
- * by the base URL — the implementation/sandbox company is a different companyId.
+ * Which Sage company you hit is decided by the companyId (implementation company is
+ * `ciderpresswoodworks-imp`), not by the base URL.
  */
 import "server-only";
 
@@ -18,8 +24,27 @@ const BASE_URL = (
   process.env.SAGE_BASE_URL || "https://api.intacct.com/ia/api/v1"
 ).replace(/\/$/, "");
 
-/** Optional sub-entity to scope every call to (sent as X-IA-API-Param-Entity). */
-const ENTITY_ID = (process.env.SAGE_ENTITY_ID || "").trim();
+/** Hand-pasted access token (see mode 1 above). Empty string when unset. */
+const STATIC_TOKEN = (process.env.SAGE_ACCESS_TOKEN || "").trim();
+
+/** Default sub-entity when a request doesn't name one. Blank = top level. */
+const DEFAULT_ENTITY_ID = (process.env.SAGE_ENTITY_ID || "").trim();
+
+/**
+ * Entities that may be targeted per request. "" is the top level (all entities,
+ * which the query service returns when includePrivate is true).
+ */
+export const SAGE_ENTITY_OPTIONS = ["", "10", "20", "30"] as const;
+export type SageEntity = (typeof SAGE_ENTITY_OPTIONS)[number];
+
+/** Header that scopes a request to one entity. */
+const ENTITY_HEADER = "X-IA-API-Param-Entity";
+
+/** Normalize a requested entity to one of the allowed values. */
+export function resolveEntity(requested?: string | null): string {
+  const value = (requested ?? DEFAULT_ENTITY_ID).trim();
+  return (SAGE_ENTITY_OPTIONS as readonly string[]).includes(value) ? value : "";
+}
 
 export class SageError extends Error {
   status: number;
@@ -49,14 +74,16 @@ export function sageConfigSummary() {
   const user = (process.env.SAGE_WS_USER || "").trim();
   const [userId, rest] = user.split("@");
   const [companyId] = (rest || "").split("|");
+  const authMode = STATIC_TOKEN ? "pasted-token" : "client-credentials";
   return {
     baseUrl: BASE_URL,
+    authMode,
     userId: userId || "",
     companyId: companyId || "",
-    entityId: ENTITY_ID || null,
-    configured: Boolean(
-      process.env.SAGE_CLIENT_ID && process.env.SAGE_CLIENT_SECRET && user
-    ),
+    defaultEntityId: DEFAULT_ENTITY_ID || null,
+    configured: STATIC_TOKEN
+      ? true
+      : Boolean(process.env.SAGE_CLIENT_ID && process.env.SAGE_CLIENT_SECRET && user),
   };
 }
 
@@ -67,10 +94,16 @@ export function sageConfigSummary() {
 let tokenCache: { token: string; expiresAt: number } | null = null;
 const TOKEN_SKEW_MS = 60 * 1000;
 
-/** Mint (or reuse) an access token. Returns the token plus its expiry. */
-async function getToken(
-  force = false
-): Promise<{ token: string; expiresAt: number }> {
+type Token = { token: string; expiresAt: number | null };
+
+/**
+ * Get an access token: the pasted one if SAGE_ACCESS_TOKEN is set, otherwise mint
+ * (or reuse) one via client credentials. A pasted token has no known expiry — it
+ * simply starts returning 401 once its 12h is up.
+ */
+async function getToken(force = false): Promise<Token> {
+  if (STATIC_TOKEN) return { token: STATIC_TOKEN, expiresAt: null };
+
   if (!force && tokenCache && Date.now() < tokenCache.expiresAt - TOKEN_SKEW_MS) {
     return tokenCache;
   }
@@ -115,18 +148,22 @@ async function getToken(
 }
 
 /**
- * Verify credentials work. Returns only non-secret facts — never the token
- * itself, which must not reach the browser.
+ * Verify auth works. Returns only non-secret facts — never the token itself,
+ * which must not reach the browser. A pasted token is proved by an actual API
+ * call (there is nothing to mint), so this hits the cheap object-model endpoint.
  */
 export async function checkSageConnection(): Promise<{
   ok: true;
-  expiresAt: string;
+  expiresAt: string | null;
   config: ReturnType<typeof sageConfigSummary>;
 }> {
   const { expiresAt } = await getToken();
+  if (STATIC_TOKEN) {
+    await sageFetch("/services/core/model?name=accounts-receivable%2Finvoice");
+  }
   return {
     ok: true,
-    expiresAt: new Date(expiresAt).toISOString(),
+    expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
     config: sageConfigSummary(),
   };
 }
@@ -169,11 +206,14 @@ function describeError(text: string): string {
 type SageRequest = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
+  /** Sub-entity to scope this call to. Blank/undefined = top level. */
+  entity?: string;
 };
 
 /** Call the Sage REST API with a bearer token, retrying once on a 401. */
 async function sageFetch<T>(path: string, init: SageRequest = {}): Promise<T> {
   const method = init.method || "GET";
+  const entity = (init.entity ?? DEFAULT_ENTITY_ID).trim();
 
   const send = async (token: string) => {
     const headers: Record<string, string> = {
@@ -181,7 +221,7 @@ async function sageFetch<T>(path: string, init: SageRequest = {}): Promise<T> {
       Accept: "application/json",
     };
     if (init.body !== undefined) headers["Content-Type"] = "application/json";
-    if (ENTITY_ID) headers["X-IA-API-Param-Entity"] = ENTITY_ID;
+    if (entity) headers[ENTITY_HEADER] = entity;
 
     return fetch(`${BASE_URL}${path}`, {
       method,
@@ -195,7 +235,15 @@ async function sageFetch<T>(path: string, init: SageRequest = {}): Promise<T> {
   let res = await send(token);
 
   // A stale cached token (revoked, or expired early) reads as a 401 — re-mint once.
+  // A pasted token can't be re-minted, so say so instead of retrying pointlessly.
   if (res.status === 401) {
+    if (STATIC_TOKEN) {
+      throw new SageError(
+        "Sage rejected the access token (401). SAGE_ACCESS_TOKEN is likely past its 12h " +
+          "life — mint a fresh one and update .env.local.",
+        401
+      );
+    }
     ({ token } = await getToken(true));
     res = await send(token);
   }
@@ -313,19 +361,31 @@ export type SageInvoiceList = {
   source: "query" | "detail";
   /** Populated when the query service failed and we fell back to list+detail. */
   queryError?: string;
+  entity: string;
   raw: unknown;
 };
 
+/** Query service default is 100 and the max is 4000 — always set it explicitly. */
 const DEFAULT_PAGE_SIZE = 100;
 
-/** List AR invoices via the query service (fields + filters + ordering). */
-async function listInvoicesByQuery(size: number) {
+/**
+ * List AR invoices via the query service — the endpoint that does ~98% of the work
+ * in this API, since object list endpoints return IDs only.
+ *
+ * `start` is 1-indexed. `includePrivate` pulls entity-level records when querying
+ * from the top level; `caseSensitiveComparison: false` matches Lindsey's (RKL)
+ * recommended defaults.
+ */
+async function listInvoicesByQuery(size: number, entity: string) {
   const payload = await sageFetch<any>("/services/core/query", {
     method: "POST",
+    entity,
     body: {
       object: "accounts-receivable/invoice",
       fields: SAGE_INVOICE_QUERY_FIELDS,
       orderBy: [{ invoiceDate: "desc" }],
+      caseSensitiveComparison: false,
+      includePrivate: true,
       start: 1,
       size,
     },
@@ -341,8 +401,10 @@ async function listInvoicesByQuery(size: number) {
  * record's detail. Needs zero field-name knowledge in the request, so it works
  * even if a query field name is wrong — but costs one call per invoice.
  */
-async function listInvoicesByDetail(size: number) {
-  const listing = await sageFetch<any>("/objects/accounts-receivable/invoice");
+async function listInvoicesByDetail(size: number, entity: string) {
+  const listing = await sageFetch<any>("/objects/accounts-receivable/invoice", {
+    entity,
+  });
   const keys = resultList(listing)
     .map((r) => str(r?.key || r?.id))
     .filter(Boolean)
@@ -351,7 +413,8 @@ async function listInvoicesByDetail(size: number) {
   const details = await Promise.all(
     keys.map((key) =>
       sageFetch<any>(
-        `/objects/accounts-receivable/invoice/${encodeURIComponent(key)}`
+        `/objects/accounts-receivable/invoice/${encodeURIComponent(key)}`,
+        { entity }
       )
     )
   );
@@ -367,15 +430,25 @@ async function listInvoicesByDetail(size: number) {
  * list+detail if it errors, reporting which path was used.
  */
 export async function listSageInvoices(
-  size = DEFAULT_PAGE_SIZE
+  size = DEFAULT_PAGE_SIZE,
+  entityInput?: string | null
 ): Promise<SageInvoiceList> {
+  const entity = resolveEntity(entityInput);
   try {
-    const { invoices, raw } = await listInvoicesByQuery(size);
-    return { invoices, source: "query", raw };
+    const { invoices, raw } = await listInvoicesByQuery(size, entity);
+    return { invoices, source: "query", entity, raw };
   } catch (err) {
     const queryError =
       err instanceof Error ? err.message : "Query service call failed.";
-    const { invoices, raw } = await listInvoicesByDetail(size);
-    return { invoices, source: "detail", queryError, raw };
+    const { invoices, raw } = await listInvoicesByDetail(size, entity);
+    return { invoices, source: "detail", queryError, entity, raw };
   }
+}
+
+/**
+ * Every queryable field on an object, straight from Sage. This is how field names
+ * get confirmed instead of guessed (e.g. name=accounts-receivable/invoice).
+ */
+export async function getSageObjectModel(name: string): Promise<unknown> {
+  return sageFetch(`/services/core/model?name=${encodeURIComponent(name)}`);
 }
