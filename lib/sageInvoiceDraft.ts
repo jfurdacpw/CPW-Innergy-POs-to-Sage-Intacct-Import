@@ -25,12 +25,21 @@
  * rather than Entries — that is how RKL's manually-entered IN-1002 carries its sales
  * tax (line 2: 78.00, isSubtotal "subtotal", account 33500, label "Tax").
  *
- * On READ this is faithful. On WRITE it cannot be set: Sage answers
- * `REST-1050 IA.READ_ONLY_FIELD — "/lines/2/isSubtotal is a read-only field"`, and
- * AR invoices expose no subtotals collection (the subtotal objects in the API are
- * Order Entry only, and GET-only). So a designated line is posted as an ordinary
- * line carrying a subtotal-type account label, and whether Sage reclassifies it is
- * up to Sage.
+ * On READ this is faithful. On WRITE, a real subtotal row is **not creatable** — both
+ * routes were tried live against the imp company and both are closed:
+ *
+ *  1. `isSubtotal` itself → `REST-1050 IA.READ_ONLY_FIELD`
+ *     "/lines/2/isSubtotal is a read-only field". AR invoices also expose no
+ *     subtotals collection; the API's subtotal objects are Order Entry and GET-only.
+ *  2. A subtotal account label on a line item → `AR-0148` "Subtotal account labels
+ *     are not valid for line items" (plus `AR-0279` "we cannot create the
+ *     transaction") — the same wall the CSV importer hit in July.
+ *
+ * So a designated line posts as a plain GL line with **no account label**, which is
+ * what the CSV export already does for tax (ACCT_NO 33500, ACCT_LABEL blank). The GL
+ * effect is identical: AR debit = revenue + tax. The designation is kept because it
+ * is meaningful on read (clones show how Sage classified each line) and because it
+ * drives this label-stripping on write.
  *
  * "" means a normal entry line.
  */
@@ -208,12 +217,15 @@ export function sageInvoicePayload(
         memo: str(line.memo) || undefined,
         glAccount: ref(line.glAccountId),
         overrideOffsetGLAccount: ref(line.offsetGLAccountId),
-        accountLabel: ref(line.accountLabelId),
-        // `isSubtotal` is deliberately NOT sent. Sage rejects it outright:
-        //   REST-1050 IA.READ_ONLY_FIELD — "/lines/2/isSubtotal is a read-only field"
-        // A designated subtotal row therefore goes up as an ordinary line whose
-        // account label is a subtotal label (e.g. "Tax"), which is the only
-        // remaining way Sage might classify it. See README.
+        // A designated subtotal/tax line drops its account label. Both routes to a
+        // real Subtotals-grid row are closed (see SageLineKind), and a subtotal
+        // label on a line item is itself rejected:
+        //   AR-0148 "Subtotal account labels are not valid for line items"
+        // So the line posts as a plain GL line — exactly what the CSV export does
+        // for tax (ACCT_NO 33500, ACCT_LABEL blank). Same GL effect.
+        accountLabel: line.kind ? undefined : ref(line.accountLabelId),
+        // Never sent: Sage answers
+        //   REST-1050 IA.READ_ONLY_FIELD "/lines/2/isSubtotal is a read-only field"
         dimensions: dimensionsFor(line),
       })
     ),

@@ -173,9 +173,30 @@ test("isSubtotal is never sent — Sage rejects it as read-only", () => {
   for (const line of payload.lines) {
     assert.equal("isSubtotal" in line, false);
   }
-  // The designation still shapes the line: subtotal account + label go up.
-  assert.deepEqual(payload.lines[1].glAccount, { id: "33500" });
-  assert.deepEqual(payload.lines[1].accountLabel, { id: "Tax" });
+});
+
+test("a designated line drops its account label but keeps its GL account", () => {
+  // AR-0148: "Subtotal account labels are not valid for line items" — so the label
+  // must not go up. The account does, matching the CSV export's tax line
+  // (ACCT_NO 33500, ACCT_LABEL blank).
+  const draft = sampleDraft();
+  draft.lines.push({
+    ...draft.lines[0],
+    txnAmount: "78.00",
+    memo: "Sales Tax",
+    glAccountId: "33500",
+    accountLabelId: "Tax",
+    kind: "subtotal",
+  });
+
+  const payload = sageInvoicePayload(draft) as any;
+  const [entry, tax] = payload.lines;
+
+  assert.deepEqual(tax.glAccount, { id: "33500" });
+  assert.equal("accountLabel" in tax, false);
+  assert.equal(tax.memo, "Sales Tax");
+  // The ordinary entry line keeps its label — only designated lines are stripped.
+  assert.deepEqual(entry.accountLabel, { id: "50200-Furniture Sales - Taxable" });
 });
 
 test("cloning from queried lines keeps the subtotal row the detail endpoint hides", () => {

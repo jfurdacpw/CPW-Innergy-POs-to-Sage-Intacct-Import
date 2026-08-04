@@ -336,29 +336,34 @@ Verified on IN-1002 (invoice key 24) — note the two different views of the sam
 > record alone silently drops the tax and posts a short invoice. `dimensions.department.id`
 > style dotted paths work in that query; the bare `department.id` form is rejected.
 
-**Answered, the hard way (2026-08-04): REST v1 cannot create a subtotal row.** Posting a line
-with the designation returns:
+**Answered by live testing (2026-08-04): a subtotal row cannot be created through this API.**
+Both routes were tried against the imp company; both are closed.
 
-```
-REST-1050 IA.READ_ONLY_FIELD — "/lines/2/isSubtotal is a read-only field"
-```
+1. Sending the designation:
+   ```
+   REST-1050 IA.READ_ONLY_FIELD — "/lines/2/isSubtotal is a read-only field"
+   ```
+   `isSubtotal` is readable but not writable, and an AR invoice exposes **no subtotals
+   collection** — the API's subtotal objects (`document-subtotal`, `document-line-subtotal`,
+   `subtotal-template`) are all **Order Entry** and all **GET-only**.
 
-`isSubtotal` is readable but not writable, and an AR invoice has **no subtotals collection** to
-post to — the API's subtotal objects (`document-subtotal`, `document-line-subtotal`,
-`subtotal-template`) all live under **Order Entry** and are **GET-only**. So the REST route hits
-the same wall the CSV importer did, for a different reason: CSV silently dropped the amount or
-errored `AR-0148`; REST refuses the field.
+2. Putting the subtotal account label on a line item instead:
+   ```
+   AR-0148 — "Choose or enter another account label. Subtotal account labels are not
+              valid for line items."
+   AR-0279 — "Currently, we cannot create the transaction"
+   ```
+   The identical wall the CSV importer hit in July, from the other side.
 
-The code therefore **never sends `isSubtotal`**. A designated line posts as an ordinary entry
-line carrying a subtotal-type account label (`Tax`), leaving any reclassification to Sage, and
-the dialog says exactly that while a line is designated. The **GL effect is identical either
-way** — AR debit = revenue + tax — which is why the CSV export already treats tax as a plain
-33500 line.
+So the REST path lands exactly where the CSV path did, and the resolution is the same:
+**a designated line posts as a plain GL line with no account label** (33500, label blank). The
+code sends neither `isSubtotal` nor the subtotal label, and the dialog states this while any
+line is designated. **GL effect is identical** — AR debit = revenue + tax.
 
-Reading subtotals still works perfectly, which is what makes clones faithful. If a true
-Subtotals-grid row is ever a hard requirement, the remaining avenues are the legacy XML API or
-an Order Entry sales document with a subtotal template — both worth a question to RKL before
-building.
+Reading subtotals is unaffected, which is what keeps clones faithful (cloning IN-1002 reproduces
+both lines and its 1378.00 total). A true Subtotals-grid row has to be entered in Sage by hand;
+if that ever becomes a hard requirement, the untried avenues are the legacy XML API and an Order
+Entry sales document with a subtotal template — ask RKL before building either.
 
 > **Not yet exercised against live Sage.** The payload builder, clone mapping and subtotal
 > designation are unit tested and modelled on real posted invoices, but no invoice has actually
