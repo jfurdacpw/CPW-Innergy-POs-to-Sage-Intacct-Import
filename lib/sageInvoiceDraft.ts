@@ -20,10 +20,17 @@
  */
 
 /**
- * How a line behaves on the invoice. Sage exposes this as `isSubtotal`, an enum of
- * null / "subtotal" / "tax" — a subtotal row sits in the invoice's Subtotals grid
- * rather than the Entries grid, which is how RKL's manually-entered IN-1002 carries
- * its sales tax (line 2: 78.00, isSubtotal "subtotal", account 33500, label "Tax").
+ * How a line sits on the invoice, as Sage reports it in `isSubtotal`
+ * (null / "subtotal" / "tax"). A subtotal row lives in the invoice's Subtotals grid
+ * rather than Entries — that is how RKL's manually-entered IN-1002 carries its sales
+ * tax (line 2: 78.00, isSubtotal "subtotal", account 33500, label "Tax").
+ *
+ * On READ this is faithful. On WRITE it cannot be set: Sage answers
+ * `REST-1050 IA.READ_ONLY_FIELD — "/lines/2/isSubtotal is a read-only field"`, and
+ * AR invoices expose no subtotals collection (the subtotal objects in the API are
+ * Order Entry only, and GET-only). So a designated line is posted as an ordinary
+ * line carrying a subtotal-type account label, and whether Sage reclassifies it is
+ * up to Sage.
  *
  * "" means a normal entry line.
  */
@@ -202,11 +209,11 @@ export function sageInvoicePayload(
         glAccount: ref(line.glAccountId),
         overrideOffsetGLAccount: ref(line.offsetGLAccountId),
         accountLabel: ref(line.accountLabelId),
-        // Only sent when the line is designated a subtotal/tax row. The object
-        // model marks isSubtotal readOnly, so whether Sage honours it on create
-        // is the open question this feature exists to answer — a rejection comes
-        // back as a readable ia::error, not a silently wrong invoice.
-        isSubtotal: line.kind || undefined,
+        // `isSubtotal` is deliberately NOT sent. Sage rejects it outright:
+        //   REST-1050 IA.READ_ONLY_FIELD — "/lines/2/isSubtotal is a read-only field"
+        // A designated subtotal row therefore goes up as an ordinary line whose
+        // account label is a subtotal label (e.g. "Tax"), which is the only
+        // remaining way Sage might classify it. See README.
         dimensions: dimensionsFor(line),
       })
     ),

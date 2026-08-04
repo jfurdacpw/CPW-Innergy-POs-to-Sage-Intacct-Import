@@ -222,12 +222,15 @@ export default function PostInvoiceDialog({
 
         {draft.lines.some((l) => l.kind) && (
           <div className="notice">
-            A subtotal/tax row is designated. Sage&rsquo;s object model marks{" "}
-            <code>isSubtotal</code> read-only, so whether it accepts the
-            designation on create is unproven — if it rejects it, the error text
-            will say so exactly. IN-1002&rsquo;s tax row is{" "}
-            <code>isSubtotal: &quot;subtotal&quot;</code>, account 33500, label
-            &ldquo;Tax&rdquo;.
+            <strong>A subtotal row can&rsquo;t be created through this API.</strong>{" "}
+            Sage rejects the field outright —{" "}
+            <code>&quot;/lines/2/isSubtotal is a read-only field&quot;</code> — and AR
+            invoices have no subtotals collection to post to. So this line goes up as
+            an ordinary entry line with its account label (
+            <code>{draft.lines.find((l) => l.kind)?.accountLabelId || "Tax"}</code>),
+            and it is up to Sage whether to reclassify it. If it comes back{" "}
+            <code>AR-0148</code>, subtotals are manual-entry only. Either way the GL
+            effect matches: AR debit = revenue + tax.
           </div>
         )}
 

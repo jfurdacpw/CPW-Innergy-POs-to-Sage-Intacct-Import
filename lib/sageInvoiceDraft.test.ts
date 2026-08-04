@@ -154,12 +154,9 @@ test("a detail record with no lines still yields one editable line", () => {
   assert.equal(draft.lines[0].txnAmount, "");
 });
 
-test("an entry line sends no isSubtotal at all", () => {
-  const payload = sageInvoicePayload(sampleDraft()) as any;
-  assert.equal("isSubtotal" in payload.lines[0], false);
-});
-
-test("a designated subtotal line sends isSubtotal", () => {
+test("isSubtotal is never sent — Sage rejects it as read-only", () => {
+  // Confirmed live: POST /objects/accounts-receivable/invoice answers
+  // REST-1050 IA.READ_ONLY_FIELD "/lines/2/isSubtotal is a read-only field".
   const draft = sampleDraft();
   draft.lines.push({
     ...draft.lines[0],
@@ -169,20 +166,16 @@ test("a designated subtotal line sends isSubtotal", () => {
     accountLabelId: "Tax",
     kind: "subtotal",
   });
+  draft.lines[0].kind = "tax";
 
   const payload = sageInvoicePayload(draft) as any;
   assert.equal(payload.lines.length, 2);
-  assert.equal("isSubtotal" in payload.lines[0], false);
-  assert.equal(payload.lines[1].isSubtotal, "subtotal");
+  for (const line of payload.lines) {
+    assert.equal("isSubtotal" in line, false);
+  }
+  // The designation still shapes the line: subtotal account + label go up.
   assert.deepEqual(payload.lines[1].glAccount, { id: "33500" });
   assert.deepEqual(payload.lines[1].accountLabel, { id: "Tax" });
-});
-
-test("the tax designation is passed through distinctly from subtotal", () => {
-  const draft = sampleDraft();
-  draft.lines[0].kind = "tax";
-  const payload = sageInvoicePayload(draft) as any;
-  assert.equal(payload.lines[0].isSubtotal, "tax");
 });
 
 test("cloning from queried lines keeps the subtotal row the detail endpoint hides", () => {

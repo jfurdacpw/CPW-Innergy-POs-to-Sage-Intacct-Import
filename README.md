@@ -336,11 +336,29 @@ Verified on IN-1002 (invoice key 24) — note the two different views of the sam
 > record alone silently drops the tax and posts a short invoice. `dimensions.department.id`
 > style dotted paths work in that query; the bare `department.id` form is rejected.
 
-**Open question, deliberately left visible in the UI:** the object model marks `isSubtotal`
-**read-only**, so it is unproven whether Sage honours the designation on create. The payload
-sends it only when a line is designated, and the dialog warns while any line is. If Sage
-rejects it, the error text says so exactly — that answer determines whether subtotals are
-creatable via REST at all, or whether they remain manual-entry-only.
+**Answered, the hard way (2026-08-04): REST v1 cannot create a subtotal row.** Posting a line
+with the designation returns:
+
+```
+REST-1050 IA.READ_ONLY_FIELD — "/lines/2/isSubtotal is a read-only field"
+```
+
+`isSubtotal` is readable but not writable, and an AR invoice has **no subtotals collection** to
+post to — the API's subtotal objects (`document-subtotal`, `document-line-subtotal`,
+`subtotal-template`) all live under **Order Entry** and are **GET-only**. So the REST route hits
+the same wall the CSV importer did, for a different reason: CSV silently dropped the amount or
+errored `AR-0148`; REST refuses the field.
+
+The code therefore **never sends `isSubtotal`**. A designated line posts as an ordinary entry
+line carrying a subtotal-type account label (`Tax`), leaving any reclassification to Sage, and
+the dialog says exactly that while a line is designated. The **GL effect is identical either
+way** — AR debit = revenue + tax — which is why the CSV export already treats tax as a plain
+33500 line.
+
+Reading subtotals still works perfectly, which is what makes clones faithful. If a true
+Subtotals-grid row is ever a hard requirement, the remaining avenues are the legacy XML API or
+an Order Entry sales document with a subtotal template — both worth a question to RKL before
+building.
 
 > **Not yet exercised against live Sage.** The payload builder, clone mapping and subtotal
 > designation are unit tested and modelled on real posted invoices, but no invoice has actually
