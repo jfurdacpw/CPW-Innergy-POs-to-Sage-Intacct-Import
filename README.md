@@ -246,5 +246,25 @@ authorization-code flow (or a Web Services user for client credentials) lands. W
 vars set, `/sage` loads and its two API routes return an error — the rest of the app is
 unaffected.
 
-> Note: the app has **no authentication** — keep the URL internal. The Innergy key is only ever
-> used server-side.
+> ### Access: the production URL is public (verified 2026-08-04)
+>
+> The app has **no authentication of its own** — no middleware, no SSO, no Microsoft/Entra login.
+> The only gate is Vercel deployment protection, and it is set to *all except custom domains*,
+> which **excludes the production alias**. Measured, not assumed:
+>
+> | URL | State |
+> |---|---|
+> | `cpw-innergy-pos-to-sage-intacct.vercel.app` (production) | public, HTTP 200, no auth |
+> | preview deployments | 302 → `vercel.com/sso-api` |
+>
+> So `GET /api/invoices` and `/api/purchase-orders` on the production URL return live Innergy
+> data to anyone who has the link. Keep it internal, or add a real gate.
+>
+> Note that the preview gate is **Vercel Authentication** (membership of the Vercel team), not
+> Microsoft SSO — a CPW employee with an M365 account but no Vercel account cannot get in.
+>
+> The Sage vars are deliberately set on **Preview + Development only**, so the pasted Sage token
+> sits behind that gate and `/api/sage/*` errors out on the public production URL. Adding
+> `SAGE_ACCESS_TOKEN` to Production would expose Sage AR data publicly until a gate exists.
+>
+> API keys themselves are never exposed — Innergy and Sage credentials are used server-side only.
