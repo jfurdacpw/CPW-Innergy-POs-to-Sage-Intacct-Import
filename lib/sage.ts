@@ -37,7 +37,12 @@ const DEFAULT_ENTITY_ID = (process.env.SAGE_ENTITY_ID || "").trim();
 export const SAGE_ENTITY_OPTIONS = ["", "10", "20", "30"] as const;
 export type SageEntity = (typeof SAGE_ENTITY_OPTIONS)[number];
 
-/** Header that scopes a request to one entity. */
+/**
+ * Header that scopes a request to one entity. Verified live (2026-08): this name
+ * works (entity 10 → 0 invoices, 20 → 8, 30 → 2, no header → all 10), while
+ * `Sage-Param-Entity` is accepted and then silently ignored — every entity value
+ * returns the full top-level set. Getting this wrong looks like success.
+ */
 const ENTITY_HEADER = "X-IA-API-Param-Entity";
 
 /** Normalize a requested entity to one of the allowed values. */
@@ -72,13 +77,15 @@ function env(name: string): string {
 /** Public, non-secret view of how this client is configured (safe for the UI). */
 export function sageConfigSummary() {
   const user = (process.env.SAGE_WS_USER || "").trim();
-  const [userId, rest] = user.split("@");
-  const [companyId] = (rest || "").split("|");
+  // Full form is userId@companyId[|entityId]. A value with no "@" is just a company
+  // id (which is all we have while running on a pasted token).
+  const [left, right] = user.includes("@") ? user.split("@") : ["", user];
+  const [companyId] = (right || "").split("|");
   const authMode = STATIC_TOKEN ? "pasted-token" : "client-credentials";
   return {
     baseUrl: BASE_URL,
     authMode,
-    userId: userId || "",
+    userId: left || "",
     companyId: companyId || "",
     defaultEntityId: DEFAULT_ENTITY_ID || null,
     configured: STATIC_TOKEN
@@ -287,13 +294,19 @@ export type SageInvoice = {
   dueDate: string;
   totalAmount: number;
   dueAmount: number;
+  referenceNumber: string;
+  description: string;
   state: string;
 };
 
 /**
- * Fields requested from the query service. Field access is funneled through
- * normalizeSageInvoice below, so this list and that function are the only two
- * places to adjust if a name turns out to be wrong for our tenant.
+ * Fields requested from the query service, verified against the imp company via
+ * `GET /services/core/model?name=accounts-receivable/invoice` (2026-08).
+ *
+ * `customer` is a ref, not a scalar field — it does not appear in the model's
+ * field list and is pulled with dot notation, which comes back as flat dotted keys
+ * ("customer.id"). Amount fields are `totalTxnAmount` / `totalTxnAmountDue` (there
+ * is no `totalDueTxnAmount`), and they arrive as strings.
  */
 export const SAGE_INVOICE_QUERY_FIELDS = [
   "key",
@@ -304,7 +317,9 @@ export const SAGE_INVOICE_QUERY_FIELDS = [
   "invoiceDate",
   "dueDate",
   "totalTxnAmount",
-  "totalDueTxnAmount",
+  "totalTxnAmountDue",
+  "referenceNumber",
+  "description",
   "state",
 ];
 
@@ -341,16 +356,18 @@ export function normalizeSageInvoice(raw: any): SageInvoice {
   };
 
   return {
-    key: str(pick("key", "recordNo")),
-    id: str(pick("id", "recordNo", "key")),
-    invoiceNumber: str(pick("invoiceNumber", "recordId", "documentNumber", "id")),
+    key: str(pick("key")),
+    id: str(pick("id", "key")),
+    invoiceNumber: str(pick("invoiceNumber", "documentId", "id")),
     customerId: str(pick("customer.id", "customerId")),
     customerName: str(pick("customer.name", "customerName")),
-    invoiceDate: str(pick("invoiceDate", "createdDate")),
+    invoiceDate: str(pick("invoiceDate")),
     dueDate: str(pick("dueDate")),
-    totalAmount: num(pick("totalTxnAmount", "totalBaseAmount", "totalEntered")),
-    dueAmount: num(pick("totalDueTxnAmount", "totalDueBaseAmount", "totalDue")),
-    state: str(pick("state", "status")),
+    totalAmount: num(pick("totalTxnAmount", "totalBaseAmount")),
+    dueAmount: num(pick("totalTxnAmountDue", "totalBaseAmountDue")),
+    referenceNumber: str(pick("referenceNumber")),
+    description: str(pick("description")),
+    state: str(pick("state")),
   };
 }
 
@@ -372,9 +389,10 @@ const DEFAULT_PAGE_SIZE = 100;
  * List AR invoices via the query service — the endpoint that does ~98% of the work
  * in this API, since object list endpoints return IDs only.
  *
- * `start` is 1-indexed. `includePrivate` pulls entity-level records when querying
- * from the top level; `caseSensitiveComparison: false` matches Lindsey's (RKL)
- * recommended defaults.
+ * `start` is 1-indexed. `caseSensitiveComparison` and `includePrivate` are RKL's
+ * recommended defaults (includePrivate pulls entity-level records when querying
+ * from the top level) and must sit inside `filterParameters` — at the top level the
+ * API rejects them: "Unrecognized key includePrivate in query payload".
  */
 async function listInvoicesByQuery(size: number, entity: string) {
   const payload = await sageFetch<any>("/services/core/query", {
@@ -384,8 +402,10 @@ async function listInvoicesByQuery(size: number, entity: string) {
       object: "accounts-receivable/invoice",
       fields: SAGE_INVOICE_QUERY_FIELDS,
       orderBy: [{ invoiceDate: "desc" }],
-      caseSensitiveComparison: false,
-      includePrivate: true,
+      filterParameters: {
+        caseSensitiveComparison: false,
+        includePrivate: true,
+      },
       start: 1,
       size,
     },

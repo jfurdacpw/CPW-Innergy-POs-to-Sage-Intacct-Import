@@ -32,10 +32,11 @@ npm run dev                    # http://localhost:3000
 |-----|----------|-------|
 | `INNERGY_API_KEY` | yes | Sent as the raw `Api-Key` header. Needs `Purchasing → PurchaseOrder → View`. |
 | `INNERGY_BASE_URL` | no | Defaults to `https://app.innergy.com`. |
-| `SAGE_CLIENT_ID` | Sage tab | From the Sage App Registry entry for this app. |
-| `SAGE_CLIENT_SECRET` | Sage tab | Never leaves the server. |
-| `SAGE_WS_USER` | Sage tab | `userId@companyId` — the companyId picks the environment. |
-| `SAGE_ENTITY_ID` | no | Scopes every call to one sub-entity (`X-IA-API-Param-Entity`). |
+| `SAGE_ACCESS_TOKEN` | Sage tab | Hand-minted token (Postman). Lasts 12h — see below. |
+| `SAGE_CLIENT_ID` | client creds | From the Sage App Registry entry for this app. |
+| `SAGE_CLIENT_SECRET` | client creds | Never leaves the server. |
+| `SAGE_WS_USER` | client creds | `userId@companyId`, e.g. `someUser@ciderpresswoodworks-imp`. |
+| `SAGE_ENTITY_ID` | no | Default sub-entity (10/20/30); the tab overrides per request. |
 | `SAGE_BASE_URL` | no | Defaults to `https://api.intacct.com/ia/api/v1`. |
 
 ## Scripts
@@ -156,29 +157,76 @@ See the field-mapping reference for the full picture.
 `/sage` is the direct-API path that will eventually replace the file exports. Today it is
 **read-only**: nothing on this tab writes to Sage.
 
-- `GET /api/sage/status` — mints an OAuth token (client credentials) and returns only the
-  expiry plus which company/entity/user we are pointed at. **The access token is never
-  returned to the browser.**
-- `GET /api/sage/invoices` — lists AR invoices. Tries `POST /services/core/query` first
-  (one call, chosen fields); if that errors it falls back to
+- `GET /api/sage/status` — proves auth works and returns only the auth mode, token expiry (if
+  known), and which company/entity we are pointed at. **The access token is never returned to
+  the browser.**
+- `GET /api/sage/invoices?entity=20` — lists AR invoices. Tries `POST /services/core/query`
+  first (one call, chosen fields); if that errors it falls back to
   `GET /objects/accounts-receivable/invoice` (which returns `key`/`id`/`href` only) plus one
   detail `GET` per record. The page shows which path was used and any query-service error, so
   a wrong field name is visible instead of silent.
 
-`lib/sage.ts` holds the whole client: token cache (12h tokens, re-minted 60s before expiry
-and on any 401), `SAGE_INVOICE_QUERY_FIELDS`, and `normalizeSageInvoice()` — the single place
-to fix field names. Intacct errors are surfaced with their full `ia::error.details[]` text
-(not truncated), since that text is what makes a failed import diagnosable.
+Verified live against the imp company: 10 invoices at the top level, 8 in entity 20, 2 in
+entity 30, 0 in entity 10 — all currently the app's own CSV imports (`description` of
+`Innergy Export`, customer `C-00005`).
 
-Setup on the Sage side (all required before the token call works):
+`lib/sage.ts` holds the whole client. Intacct errors are surfaced with their full
+`ia::error.details[]` text (not truncated), since that text is what makes a failure
+diagnosable.
 
-1. Web Services license, and an app registered in the Sage App Registry → `client_id` /
-   `client_secret`.
-2. A Web Services user: Company → Admin → Web Services Users → Add, with permissions for the
-   objects being read (AR invoices).
-3. Company → Setup → Company → Edit → Security → **Authorized Client Applications** → add the
-   `client_id` paired with that Web Services user ID (case-sensitive). Missing this step is the
-   usual cause of "auth fails with valid credentials".
+### Auth: pasted token today, two real options later
+
+The registered app in the Sage App Registry uses the **user-facing authorization-code
+workflow** (a Vercel URL is its redirect URI), and no Web Services user exists yet — so
+`client_credentials` cannot mint a token: it fails with
+`"The username format is invalid (expected user@company)"`, and there is no user to name.
+
+So `SAGE_ACCESS_TOKEN` is the current mode: mint a token by hand (the Sage Postman collection,
+logging in against `ciderpresswoodworks-imp`) and paste it in. **Tokens live 12 hours**; when
+one expires the app says so explicitly instead of retrying a mint that can't work. Client
+credentials stays implemented as the second mode, used whenever `SAGE_ACCESS_TOKEN` is blank.
+
+To get off hand-pasted tokens, pick one:
+
+- **Authorization-code flow** (matches the app as registered) — add `/api/sage/auth/start` +
+  `/callback`, a "Connect to Intacct" button, and token storage. Needs the exact redirect URI
+  from the developer portal, plus a localhost one registered for dev.
+- **Client credentials** (no browser login, required for unattended posting) — create a Web
+  Services user (Company → Admin → Web Services Users), then pair the `client_id` with that
+  user ID under Company → Setup → Company → Edit → Security → **Authorized Client
+  Applications** (case-sensitive). Lindsey (RKL) flagged this as the eventual way to get
+  fine-grained permissions.
+
+### Query service conventions (verified live against the imp company, 2026-08)
+
+The REST API is not fully RESTful: object list endpoints return `key`/`id`/`href` only, so
+`POST /services/core/query` does nearly all the work.
+
+- **Entity scoping uses `X-IA-API-Param-Entity`.** Verified: entity `10` → 0 invoices, `20` → 8,
+  `30` → 2, no header → all 10. The header name `Sage-Param-Entity` is **accepted and silently
+  ignored** (every value returns the full top-level set), so getting it wrong looks like
+  success. Entity is per request on this tab — top level / 10 / 20 / 30 — defaulting to
+  `SAGE_ENTITY_ID`.
+- `caseSensitiveComparison` and `includePrivate` must sit inside **`filterParameters`**. At the
+  top level the API rejects the payload: `"Unrecognized key includePrivate in query payload"`.
+- `start` is **1-indexed**; `size` defaults to 100, max 4000 — always set it.
+- Date-only fields (`invoiceDate`, `dueDate`) are `YYYY-MM-DD`; date-time fields use ISO 8601
+  UTC. `audit.modifiedDateTime` is the field to filter on for recently changed records.
+
+**AR invoice fields** (from `GET /services/core/model?name=accounts-receivable/invoice`, which
+enumerates every queryable field on any object — use it instead of guessing):
+`invoiceNumber`, `invoiceDate`, `dueDate`, `state`, `referenceNumber`, `description`,
+`documentId`, `totalTxnAmount`, `totalTxnAmountDue`, `totalBaseAmount`, `totalBaseAmountDue`,
+plus `key`/`id`. Two traps:
+
+- The amount fields are `totalTxnAmount` / `totalTxnAmount**Due**` — there is no
+  `totalDueTxnAmount`. Amounts come back as **strings**.
+- `customer` is a **ref**, not a scalar, so it is absent from the model's field list. Pull it
+  with dot notation (`customer.id`, `customer.name`); the response returns flat **dotted keys**,
+  which is why `normalizeSageInvoice()` reads both dotted and nested shapes.
+
+`SAGE_INVOICE_QUERY_FIELDS` + `normalizeSageInvoice()` remain the only two places to touch if a
+field name changes.
 
 > Security: the app has **no authentication** and is on a public Vercel URL. Read-only Sage
 > calls are the same risk class as the existing Innergy proxy, but before the POST path lands,
