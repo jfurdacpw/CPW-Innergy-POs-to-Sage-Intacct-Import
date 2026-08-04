@@ -276,3 +276,71 @@ button.ghost {
   border-color: var(--border);
   color: var(--text);
 }
+
+/* Sage API test page */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px 20px;
+  margin-top: 16px;
+}
+
+.kv label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 3px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notice {
+  padding: 12px 14px;
+  background: var(--amber-bg);
+  border: 1px solid #fcd34d;
+  color: var(--amber);
+  border-radius: 10px;
+  margin: 12px 0;
+}
+
+pre.raw {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  overflow: auto;
+  max-height: 420px;
+  font-size: 12px;
+  line-height: 1.5;
+}

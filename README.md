@@ -1,13 +1,16 @@
 # CPW Innergy → Sage Intacct Exporter
 
 Internal web app that lists records pulled live from Innergy and exports them to `.xlsx`
-files matching Sage Intacct import templates. Two tabs:
+files matching Sage Intacct import templates. Three tabs:
 
 - **Bills (AP)** — `/` — exports a **reconciled** purchase order to the **AP Bill** template
   (`Accounts Payable bills.xls`). One PO = one bill line.
 - **Invoices (AR)** — `/invoices` — exports an invoice to the **AR Invoice** template
   (`Accounts Receivable invoices (Innergy Field Mapping).xls`). One invoice = one line;
   no status gate (any invoice can be exported).
+- **Sage API (test)** — `/sage` — talks to the Sage Intacct REST API directly instead of
+  generating a file. Read-only today (connection test + list AR invoices); the eventual
+  goal is posting invoices straight into Sage.
 
 ## Stack
 
@@ -29,6 +32,11 @@ npm run dev                    # http://localhost:3000
 |-----|----------|-------|
 | `INNERGY_API_KEY` | yes | Sent as the raw `Api-Key` header. Needs `Purchasing → PurchaseOrder → View`. |
 | `INNERGY_BASE_URL` | no | Defaults to `https://app.innergy.com`. |
+| `SAGE_CLIENT_ID` | Sage tab | From the Sage App Registry entry for this app. |
+| `SAGE_CLIENT_SECRET` | Sage tab | Never leaves the server. |
+| `SAGE_WS_USER` | Sage tab | `userId@companyId` — the companyId picks the environment. |
+| `SAGE_ENTITY_ID` | no | Scopes every call to one sub-entity (`X-IA-API-Param-Entity`). |
+| `SAGE_BASE_URL` | no | Defaults to `https://api.intacct.com/ia/api/v1`. |
 
 ## Scripts
 
@@ -142,6 +150,39 @@ import, and confirm `33500` applies to all entities.
 **Not yet mapped (needs setup in Innergy / a decision):** `DEPT_ID` (Furniture vs Millwork),
 `LOCATION_ID` (entity/facility, e.g. `20-PA`), and `ARINVOICEITEM_PROJECTID` (Sage project IDs).
 See the field-mapping reference for the full picture.
+
+## Sage API (test) tab
+
+`/sage` is the direct-API path that will eventually replace the file exports. Today it is
+**read-only**: nothing on this tab writes to Sage.
+
+- `GET /api/sage/status` — mints an OAuth token (client credentials) and returns only the
+  expiry plus which company/entity/user we are pointed at. **The access token is never
+  returned to the browser.**
+- `GET /api/sage/invoices` — lists AR invoices. Tries `POST /services/core/query` first
+  (one call, chosen fields); if that errors it falls back to
+  `GET /objects/accounts-receivable/invoice` (which returns `key`/`id`/`href` only) plus one
+  detail `GET` per record. The page shows which path was used and any query-service error, so
+  a wrong field name is visible instead of silent.
+
+`lib/sage.ts` holds the whole client: token cache (12h tokens, re-minted 60s before expiry
+and on any 401), `SAGE_INVOICE_QUERY_FIELDS`, and `normalizeSageInvoice()` — the single place
+to fix field names. Intacct errors are surfaced with their full `ia::error.details[]` text
+(not truncated), since that text is what makes a failed import diagnosable.
+
+Setup on the Sage side (all required before the token call works):
+
+1. Web Services license, and an app registered in the Sage App Registry → `client_id` /
+   `client_secret`.
+2. A Web Services user: Company → Admin → Web Services Users → Add, with permissions for the
+   objects being read (AR invoices).
+3. Company → Setup → Company → Edit → Security → **Authorized Client Applications** → add the
+   `client_id` paired with that Web Services user ID (case-sensitive). Missing this step is the
+   usual cause of "auth fails with valid credentials".
+
+> Security: the app has **no authentication** and is on a public Vercel URL. Read-only Sage
+> calls are the same risk class as the existing Innergy proxy, but before the POST path lands,
+> an unauthenticated route that writes into Sage needs a gate in front of it.
 
 ## Deploy to Vercel
 
