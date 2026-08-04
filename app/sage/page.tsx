@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SageInvoice, SageInvoiceList } from "@/lib/sage";
+import {
+  blankSageInvoiceDraft,
+  type SageInvoiceDraft,
+} from "@/lib/sageInvoiceDraft";
+import PostInvoiceDialog from "./PostInvoiceDialog";
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -48,6 +53,14 @@ export default function SagePage() {
   const [query, setQuery] = useState("");
   const [showRaw, setShowRaw] = useState(false);
   const [entity, setEntity] = useState("20");
+
+  // Post dialog: null = closed. `sourceLabel` says where the draft came from.
+  const [post, setPost] = useState<{
+    draft: SageInvoiceDraft;
+    sourceLabel: string;
+  } | null>(null);
+  const [cloning, setCloning] = useState<string | null>(null);
+  const [posted, setPosted] = useState<{ key: string; id: string } | null>(null);
 
   /**
    * The picker seeds itself from the server's SAGE_ENTITY_ID so the two defaults
@@ -102,6 +115,40 @@ export default function SagePage() {
   useEffect(() => {
     checkConnection();
   }, [checkConnection]);
+
+  /**
+   * Open the post dialog prefilled from an existing invoice. The detail record is
+   * fetched fresh (the list query doesn't carry lines, accounts or dimensions).
+   * The invoice number is left blank so Sage assigns a new one — reusing it is
+   * rejected as a duplicate.
+   */
+  async function openClone(invoice: SageInvoice) {
+    setCloning(invoice.key);
+    setError(null);
+    setErrorDetails(undefined);
+    try {
+      const res = await fetch(
+        `/api/sage/invoices/${encodeURIComponent(invoice.key)}?entity=${encodeURIComponent(entity)}`
+      );
+      const body = await res.json();
+      if (!res.ok) {
+        setErrorDetails(body.details);
+        throw new Error(body.error || "Failed to load that invoice.");
+      }
+      setPost({
+        draft: { ...(body.draft as SageInvoiceDraft), invoiceNumber: "" },
+        sourceLabel: `clone of ${invoice.invoiceNumber || `key ${invoice.key}`}`,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load that invoice.");
+    } finally {
+      setCloning(null);
+    }
+  }
+
+  function openBlank() {
+    setPost({ draft: blankSageInvoiceDraft(), sourceLabel: "manual entry" });
+  }
 
   const invoices: SageInvoice[] = list?.invoices ?? [];
 
@@ -211,11 +258,25 @@ export default function SagePage() {
                 ))}
               </select>
             </label>
+            <button className="ghost" onClick={openBlank} disabled={loading}>
+              New invoice
+            </button>
             <button className="primary" onClick={loadInvoices} disabled={loading}>
               {loading ? "Loading…" : invoices.length ? "Refresh" : "Load invoices"}
             </button>
           </div>
         </div>
+
+        {posted && (
+          <div className="notice success">
+            Posted to Sage — new invoice <strong>{posted.id}</strong> (record key{" "}
+            {posted.key}) in entity {entity || "top level"}.{" "}
+            <button className="link" onClick={loadInvoices}>
+              Refresh the list
+            </button>{" "}
+            to see it.
+          </div>
+        )}
 
         {error && <div className="error">{error}</div>}
         {error && errorDetails ? (
@@ -273,6 +334,7 @@ export default function SagePage() {
                   <th className="num">Total</th>
                   <th className="num">Balance</th>
                   <th>Record key</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -291,6 +353,16 @@ export default function SagePage() {
                     <td className="num">{currency.format(inv.totalAmount)}</td>
                     <td className="num">{currency.format(inv.dueAmount)}</td>
                     <td className="mono">{inv.key || "—"}</td>
+                    <td>
+                      <button
+                        className="ghost"
+                        onClick={() => openClone(inv)}
+                        disabled={cloning !== null || !inv.key}
+                        title="Open a new invoice prefilled from this one"
+                      >
+                        {cloning === inv.key ? "Loading…" : "Clone"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -302,6 +374,20 @@ export default function SagePage() {
           <pre className="raw">{JSON.stringify(list.raw, null, 2)}</pre>
         ) : null}
       </section>
+
+      {post && (
+        <PostInvoiceDialog
+          initialDraft={post.draft}
+          entity={entity}
+          sourceLabel={post.sourceLabel}
+          onClose={() => setPost(null)}
+          onPosted={(result) => {
+            setPost(null);
+            setPosted(result);
+            loadInvoices();
+          }}
+        />
+      )}
     </div>
   );
 }

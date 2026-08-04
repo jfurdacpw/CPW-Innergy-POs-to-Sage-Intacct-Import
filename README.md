@@ -282,6 +282,42 @@ plus `key`/`id`. Two traps:
 `SAGE_INVOICE_QUERY_FIELDS` + `normalizeSageInvoice()` remain the only two places to touch if a
 field name changes.
 
+### Posting an invoice (write path)
+
+Each row in the Sage invoice list has a **Clone** button, and the card header has **New
+invoice**. Both open the same dialog — clone prefills every field from that invoice's detail
+record, manual entry starts blank — and every field stays editable. `POST /api/sage/invoices`
+then creates it.
+
+- **The invoice number is cleared on a clone**, because Sage rejects a duplicate. Blank means
+  Sage assigns the next number.
+- **State defaults to `posted`**, which hits the GL exactly as a CSV import does. The dialog
+  offers `draft` as the alternative (deletable, no GL impact). `state` is the current field for
+  this; the `action` field (`submit`/`draft`) is deprecated in the object model.
+- The dialog can show **the exact JSON that will be sent** before sending. Both the preview and
+  the server-side request come from `sageInvoicePayload()` in `lib/sageInvoiceDraft.ts`, so they
+  cannot drift apart. That module is free of `server-only` imports for this reason.
+
+Payload shape, verified against invoice 40 (a real CSV import) and the object models:
+
+| Draft field | Sage payload |
+|---|---|
+| customer | `customer: { id }` |
+| line amount / memo | `lines[].txnAmount`, `lines[].memo` — the only plain writable line fields |
+| GL account | `lines[].glAccount: { id }` |
+| AR control account | `lines[].overrideOffsetGLAccount: { id }` (12100) — same as CSV `ARINVOICEITEM_ARACCOUNT` |
+| account label | `lines[].accountLabel: { id }` e.g. `50200-Furniture Sales - Taxable` |
+| dept / location / project | `lines[].dimensions.{department,location,project}: { id }` |
+
+Empty ids are **omitted entirely** rather than sent as `{ "id": "" }`, which Sage rejects.
+`lib/sageInvoiceDraft.test.ts` covers that, the two-line (revenue + sales tax) case, the
+clone mapping, and validation.
+
+> **Not yet exercised against live Sage.** The payload builder and clone mapping are unit
+> tested and modelled on a real posted invoice, but no invoice has actually been created
+> through this path yet — the first real Clone → Post is the test. Expect the response to
+> surface any field Sage disagrees with verbatim, including `ia::error.details[]`.
+
 > Security: the app has **no authentication** and is on a public Vercel URL. Read-only Sage
 > calls are the same risk class as the existing Innergy proxy, but before the POST path lands,
 > an unauthenticated route that writes into Sage needs a gate in front of it.

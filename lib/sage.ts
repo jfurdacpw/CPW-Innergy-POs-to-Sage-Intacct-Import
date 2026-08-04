@@ -19,6 +19,11 @@
  * `ciderpresswoodworks-imp`), not by the base URL.
  */
 import "server-only";
+import {
+  sageInvoicePayload,
+  validateSageInvoiceDraft,
+  type SageInvoiceDraft,
+} from "./sageInvoiceDraft";
 
 const BASE_URL = (
   process.env.SAGE_BASE_URL || "https://api.intacct.com/ia/api/v1"
@@ -478,4 +483,76 @@ export async function listSageInvoices(
  */
 export async function getSageObjectModel(name: string): Promise<unknown> {
   return sageFetch(`/services/core/model?name=${encodeURIComponent(name)}`);
+}
+
+/* ------------------------------------------------------------------ *
+ * Creating AR invoices (clone an existing one, or enter one by hand)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Draft shape, payload builder and validation live in lib/sageInvoiceDraft.ts so
+ * the browser can preview the exact JSON this module posts — one implementation,
+ * no drift between preview and request.
+ */
+export type {
+  SageInvoiceDraft,
+  SageInvoiceLineDraft,
+} from "./sageInvoiceDraft";
+export {
+  blankSageInvoiceDraft,
+  sageInvoiceDraftFromDetail,
+  sageInvoicePayload,
+  validateSageInvoiceDraft,
+} from "./sageInvoiceDraft";
+
+/** Fetch one invoice's full detail record (used to prefill a clone). */
+export async function getSageInvoiceDetail(
+  key: string,
+  entityInput?: string | null
+): Promise<any> {
+  const payload = await sageFetch<any>(
+    `/objects/accounts-receivable/invoice/${encodeURIComponent(key)}`,
+    { entity: resolveEntity(entityInput) }
+  );
+  return resultList(payload)[0] ?? null;
+}
+
+export type SageCreateResult = {
+  key: string;
+  id: string;
+  entity: string;
+  payload: Record<string, unknown>;
+  raw: unknown;
+};
+
+/**
+ * POST a new AR invoice. This WRITES to Sage — with state "posted" it hits the GL
+ * exactly as a CSV import would, so it is only reachable from the signed-in Sage
+ * test tab.
+ */
+export async function createSageInvoice(
+  draft: SageInvoiceDraft,
+  entityInput?: string | null
+): Promise<SageCreateResult> {
+  const problems = validateSageInvoiceDraft(draft);
+  if (problems.length) {
+    throw new SageError(problems.join(" "), 400);
+  }
+
+  const entity = resolveEntity(entityInput);
+  const payload = sageInvoicePayload(draft);
+  const response = await sageFetch<any>("/objects/accounts-receivable/invoice", {
+    method: "POST",
+    entity,
+    body: payload,
+  });
+
+  const created = resultList(response)[0] ?? {};
+  return {
+    key: str(created?.key),
+    id: str(created?.id),
+    entity,
+    payload,
+    raw: response,
+  };
 }
