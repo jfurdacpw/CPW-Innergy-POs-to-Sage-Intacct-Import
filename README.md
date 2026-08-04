@@ -313,10 +313,39 @@ Empty ids are **omitted entirely** rather than sent as `{ "id": "" }`, which Sag
 `lib/sageInvoiceDraft.test.ts` covers that, the two-line (revenue + sales tax) case, the
 clone mapping, and validation.
 
-> **Not yet exercised against live Sage.** The payload builder and clone mapping are unit
-> tested and modelled on a real posted invoice, but no invoice has actually been created
-> through this path yet — the first real Clone → Post is the test. Expect the response to
-> surface any field Sage disagrees with verbatim, including `ia::error.details[]`.
+#### Subtotal (sales tax) lines — and a trap in the detail endpoint
+
+Each line has a **Type** of Entry / Subtotal / Tax, plus an **Add tax subtotal** button that
+appends a 33500 / `Tax` row. Sage models this as `isSubtotal` on the invoice line, an enum of
+`null` / `"subtotal"` / `"tax"`; a subtotal row lives in the invoice's **Subtotals** grid rather
+than **Entries**. This is what RKL's manually-entered **IN-1002** does, and what the CSV
+importer could never reproduce (every `SUBTOTAL="T"` variant either dropped the amount or
+errored `AR-0148`).
+
+Verified on IN-1002 (invoice key 24) — note the two different views of the same invoice:
+
+| key | line | amount | isSubtotal | GL account | account label |
+|---|---|---|---|---|---|
+| 83 | 1 | 1300.00 | `null` | 50200 | `50200-Furniture Sales - Taxable` |
+| 85 | 2 | 78.00 | `subtotal` | 33500 | `Tax` |
+
+> **Trap:** `GET /objects/accounts-receivable/invoice/{key}` **omits subtotal rows** from its
+> `lines` array. Invoice 24's detail returns only the 1300.00 line, even though the invoice
+> totals 1378.00. Querying `accounts-receivable/invoice-line` returns both. So the clone path
+> reads lines through `listSageInvoiceLines()` (the query service) — cloning from the detail
+> record alone silently drops the tax and posts a short invoice. `dimensions.department.id`
+> style dotted paths work in that query; the bare `department.id` form is rejected.
+
+**Open question, deliberately left visible in the UI:** the object model marks `isSubtotal`
+**read-only**, so it is unproven whether Sage honours the designation on create. The payload
+sends it only when a line is designated, and the dialog warns while any line is. If Sage
+rejects it, the error text says so exactly — that answer determines whether subtotals are
+creatable via REST at all, or whether they remain manual-entry-only.
+
+> **Not yet exercised against live Sage.** The payload builder, clone mapping and subtotal
+> designation are unit tested and modelled on real posted invoices, but no invoice has actually
+> been created through this path yet — the first real Clone → Post is the test. Expect the
+> response to surface any field Sage disagrees with verbatim, including `ia::error.details[]`.
 
 > Security: the app has **no authentication** and is on a public Vercel URL. Read-only Sage
 > calls are the same risk class as the existing Innergy proxy, but before the POST path lands,

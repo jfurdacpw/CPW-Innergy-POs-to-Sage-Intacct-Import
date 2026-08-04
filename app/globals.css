@@ -470,6 +470,20 @@ button.ghost {
   min-width: 78px;
 }
 
+.lines-table select.w-kind {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+/* A designated subtotal row reads differently from an entry line. */
+.lines-table tr.line-subtotal td {
+  background: var(--amber-bg);
+}
+
 .payload-toggle {
   margin-top: 16px;
   text-transform: none;

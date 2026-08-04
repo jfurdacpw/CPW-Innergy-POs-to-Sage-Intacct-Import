@@ -19,6 +19,16 @@
  *   account the CSV export writes into ARINVOICEITEM_ARACCOUNT.
  */
 
+/**
+ * How a line behaves on the invoice. Sage exposes this as `isSubtotal`, an enum of
+ * null / "subtotal" / "tax" — a subtotal row sits in the invoice's Subtotals grid
+ * rather than the Entries grid, which is how RKL's manually-entered IN-1002 carries
+ * its sales tax (line 2: 78.00, isSubtotal "subtotal", account 33500, label "Tax").
+ *
+ * "" means a normal entry line.
+ */
+export type SageLineKind = "" | "subtotal" | "tax";
+
 export type SageInvoiceLineDraft = {
   txnAmount: string;
   memo: string;
@@ -28,6 +38,8 @@ export type SageInvoiceLineDraft = {
   departmentId: string;
   locationId: string;
   projectId: string;
+  /** Designates this line as a Subtotals-grid row. See SageLineKind. */
+  kind: SageLineKind;
 };
 
 export type SageInvoiceDraft = {
@@ -73,6 +85,7 @@ export function blankSageInvoiceLine(): SageInvoiceLineDraft {
     departmentId: "",
     locationId: "",
     projectId: "",
+    kind: "",
   };
 }
 
@@ -90,22 +103,51 @@ export function blankSageInvoiceDraft(): SageInvoiceDraft {
   };
 }
 
+/** Read a value that may be nested (`{a:{b:1}}`) or a flat dotted key (`"a.b"`). */
+function deep(raw: any, path: string): string {
+  const flat = raw?.[path];
+  if (flat !== undefined && flat !== null && flat !== "") return str(flat);
+  const nested = path
+    .split(".")
+    .reduce((acc: any, part) => (acc == null ? acc : acc[part]), raw);
+  return str(nested);
+}
+
 /**
- * Build a draft from an existing invoice's detail record — the "clone" path.
- * Dates, amounts, accounts and dimensions all carry over; the caller decides what
- * to do about the invoice number, since Sage rejects a duplicate.
+ * Map one line — from either an invoice detail record's `lines[]` (nested) or an
+ * invoice-line query row (flat dotted keys).
  */
-export function sageInvoiceDraftFromDetail(raw: any): SageInvoiceDraft {
-  const lines: SageInvoiceLineDraft[] = (raw?.lines || []).map((line: any) => ({
-    txnAmount: str(line?.txnAmount),
-    memo: str(line?.memo),
-    glAccountId: str(line?.glAccount?.id),
-    offsetGLAccountId: str(line?.overrideOffsetGLAccount?.id),
-    accountLabelId: str(line?.accountLabel?.id),
-    departmentId: str(line?.dimensions?.department?.id),
-    locationId: str(line?.dimensions?.location?.id),
-    projectId: str(line?.dimensions?.project?.id),
-  }));
+export function sageLineDraftFrom(line: any): SageInvoiceLineDraft {
+  const kind = deep(line, "isSubtotal");
+  return {
+    txnAmount: deep(line, "txnAmount"),
+    memo: deep(line, "memo"),
+    glAccountId: deep(line, "glAccount.id"),
+    offsetGLAccountId: deep(line, "overrideOffsetGLAccount.id"),
+    accountLabelId: deep(line, "accountLabel.id"),
+    departmentId: deep(line, "dimensions.department.id"),
+    locationId: deep(line, "dimensions.location.id"),
+    projectId: deep(line, "dimensions.project.id"),
+    kind: kind === "subtotal" || kind === "tax" ? kind : "",
+  };
+}
+
+/**
+ * Build a draft from an existing invoice — the "clone" path. Dates, amounts,
+ * accounts, dimensions and each line's subtotal designation carry over; the caller
+ * decides what to do about the invoice number, since Sage rejects a duplicate.
+ *
+ * `lines` should come from an invoice-line QUERY, not the detail record: a detail
+ * GET omits subtotal rows entirely (invoice 24 returns one 1300.00 line and hides
+ * its 78.00 tax subtotal), so cloning from `raw.lines` silently loses them.
+ */
+export function sageInvoiceDraftFromDetail(
+  raw: any,
+  queriedLines?: any[]
+): SageInvoiceDraft {
+  const source =
+    queriedLines && queriedLines.length ? queriedLines : raw?.lines || [];
+  const lines: SageInvoiceLineDraft[] = source.map(sageLineDraftFrom);
 
   return {
     invoiceNumber: str(raw?.invoiceNumber),
@@ -160,6 +202,11 @@ export function sageInvoicePayload(
         glAccount: ref(line.glAccountId),
         overrideOffsetGLAccount: ref(line.offsetGLAccountId),
         accountLabel: ref(line.accountLabelId),
+        // Only sent when the line is designated a subtotal/tax row. The object
+        // model marks isSubtotal readOnly, so whether Sage honours it on create
+        // is the open question this feature exists to answer — a rejection comes
+        // back as a readable ia::error, not a silently wrong invoice.
+        isSubtotal: line.kind || undefined,
         dimensions: dimensionsFor(line),
       })
     ),

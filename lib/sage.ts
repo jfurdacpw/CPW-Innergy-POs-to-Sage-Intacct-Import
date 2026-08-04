@@ -504,6 +504,7 @@ export {
   sageInvoicePayload,
   validateSageInvoiceDraft,
 } from "./sageInvoiceDraft";
+import { sageInvoiceDraftFromDetail } from "./sageInvoiceDraft";
 
 /** Fetch one invoice's full detail record (used to prefill a clone). */
 export async function getSageInvoiceDetail(
@@ -515,6 +516,81 @@ export async function getSageInvoiceDetail(
     { entity: resolveEntity(entityInput) }
   );
   return resultList(payload)[0] ?? null;
+}
+
+/**
+ * Fields pulled for each line of an invoice. `dimensions.*` dotted paths work here
+ * (verified live); the bare `department.id` form does not.
+ */
+export const SAGE_INVOICE_LINE_QUERY_FIELDS = [
+  "key",
+  "id",
+  "lineNumber",
+  "txnAmount",
+  "memo",
+  "isSubtotal",
+  "glAccount.id",
+  "overrideOffsetGLAccount.id",
+  "accountLabel.id",
+  "dimensions.department.id",
+  "dimensions.location.id",
+  "dimensions.project.id",
+];
+
+/**
+ * Every line of an invoice, via the query service — **including subtotal rows**.
+ *
+ * This matters: `GET /objects/accounts-receivable/invoice/{key}` omits subtotal
+ * lines from its `lines` array. Invoice 24 (RKL's manually-entered IN-1002) returns
+ * a single 1300.00 entry line from the detail endpoint while the query service shows
+ * both it and the 78.00 `isSubtotal: "subtotal"` tax row that makes up its 1378.00
+ * total. Cloning from the detail record alone silently drops the tax.
+ */
+export async function listSageInvoiceLines(
+  invoiceId: string,
+  entityInput?: string | null
+): Promise<any[]> {
+  const payload = await sageFetch<any>("/services/core/query", {
+    method: "POST",
+    entity: resolveEntity(entityInput),
+    body: {
+      object: "accounts-receivable/invoice-line",
+      fields: SAGE_INVOICE_LINE_QUERY_FIELDS,
+      filters: [{ $eq: { "invoice.id": str(invoiceId) } }],
+      filterParameters: { caseSensitiveComparison: false, includePrivate: true },
+      orderBy: [{ lineNumber: "asc" }],
+      start: 1,
+      size: 200,
+    },
+  });
+  return resultList(payload);
+}
+
+/**
+ * Everything the clone dialog needs: the header record plus every line (subtotals
+ * included), already mapped to an editable draft.
+ */
+export async function getSageInvoiceForClone(
+  key: string,
+  entityInput?: string | null
+): Promise<{ detail: any; lines: any[]; draft: SageInvoiceDraft } | null> {
+  const detail = await getSageInvoiceDetail(key, entityInput);
+  if (!detail) return null;
+
+  // A failure here must not lose the clone — fall back to the detail's own lines,
+  // which are correct for invoices that have no subtotal rows.
+  let lines: any[] = [];
+  try {
+    lines = await listSageInvoiceLines(str(detail?.id) || key, entityInput);
+  } catch {
+    lines = [];
+  }
+
+  return {
+    detail,
+    lines,
+    draft: sageInvoiceDraftFromDetail(detail, lines),
+  };
 }
 
 export type SageCreateResult = {

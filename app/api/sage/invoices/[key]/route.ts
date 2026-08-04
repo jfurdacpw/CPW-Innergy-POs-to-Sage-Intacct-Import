@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSageInvoiceDetail, sageInvoiceDraftFromDetail, SageError } from "@/lib/sage";
+import { getSageInvoiceForClone, SageError } from "@/lib/sage";
 
 export const dynamic = "force-dynamic";
 
 /**
- * One invoice's full detail record, plus a draft prefilled from it — what the
- * "Clone" button needs to open its dialog with every field already populated.
+ * One invoice's detail record, its lines (subtotal rows included — the detail
+ * endpoint hides those), and a draft prefilled from both. This is what the "Clone"
+ * button needs to open its dialog fully populated.
  */
 export async function GET(
   request: Request,
@@ -15,17 +16,14 @@ export async function GET(
   const entity = new URL(request.url).searchParams.get("entity");
 
   try {
-    const detail = await getSageInvoiceDetail(key, entity);
-    if (!detail) {
+    const result = await getSageInvoiceForClone(key, entity);
+    if (!result) {
       return NextResponse.json(
         { error: `No Sage invoice with key ${key} in that entity.` },
         { status: 404 }
       );
     }
-    return NextResponse.json({
-      detail,
-      draft: sageInvoiceDraftFromDetail(detail),
-    });
+    return NextResponse.json(result);
   } catch (err) {
     const status = err instanceof SageError ? err.status : 500;
     const message =

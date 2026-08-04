@@ -63,6 +63,31 @@ export default function PostInvoiceDialog({
     }));
   }
 
+  /**
+   * Add a sales-tax subtotal row matching RKL's manually-entered IN-1002: a
+   * Subtotals-grid line on 33500 with the "Tax" account label, carrying the
+   * dimensions of the line above it.
+   */
+  function addTaxSubtotal() {
+    setDraft((d) => {
+      const last = d.lines[d.lines.length - 1] ?? blankSageInvoiceLine();
+      return {
+        ...d,
+        lines: [
+          ...d.lines,
+          {
+            ...last,
+            txnAmount: "",
+            memo: "Sales Tax",
+            kind: "subtotal",
+            glAccountId: "33500",
+            accountLabelId: "Tax",
+          },
+        ],
+      };
+    });
+  }
+
   function addLine() {
     setDraft((d) => {
       // Copy accounts/dimensions from the last line — on a real invoice the second
@@ -185,15 +210,32 @@ export default function PostInvoiceDialog({
           <h3>
             Lines <span className="meta">total {total.toFixed(2)}</span>
           </h3>
-          <button className="ghost" onClick={addLine} disabled={posting}>
-            Add line
-          </button>
+          <div className="head-actions">
+            <button className="ghost" onClick={addTaxSubtotal} disabled={posting}>
+              Add tax subtotal
+            </button>
+            <button className="ghost" onClick={addLine} disabled={posting}>
+              Add line
+            </button>
+          </div>
         </div>
+
+        {draft.lines.some((l) => l.kind) && (
+          <div className="notice">
+            A subtotal/tax row is designated. Sage&rsquo;s object model marks{" "}
+            <code>isSubtotal</code> read-only, so whether it accepts the
+            designation on create is unproven — if it rejects it, the error text
+            will say so exactly. IN-1002&rsquo;s tax row is{" "}
+            <code>isSubtotal: &quot;subtotal&quot;</code>, account 33500, label
+            &ldquo;Tax&rdquo;.
+          </div>
+        )}
 
         <div className="table-wrap">
           <table className="lines-table">
             <thead>
               <tr>
+                <th>Type</th>
                 <th>Amount</th>
                 <th>Memo</th>
                 <th>GL account</th>
@@ -207,7 +249,19 @@ export default function PostInvoiceDialog({
             </thead>
             <tbody>
               {draft.lines.map((line, i) => (
-                <tr key={i}>
+                <tr key={i} className={line.kind ? "line-subtotal" : undefined}>
+                  <td>
+                    <select
+                      className="w-kind"
+                      value={line.kind}
+                      onChange={(e) => setLine(i, "kind", e.target.value)}
+                      title="A subtotal/tax row sits in Sage's Subtotals grid instead of Entries"
+                    >
+                      <option value="">Entry</option>
+                      <option value="subtotal">Subtotal</option>
+                      <option value="tax">Tax</option>
+                    </select>
+                  </td>
                   <td>
                     <input
                       className="w-amount"

@@ -28,6 +28,7 @@ function sampleDraft(): SageInvoiceDraft {
         departmentId: "FURNITURE",
         locationId: "20-PA",
         projectId: "",
+        kind: "",
       },
     ],
   };
@@ -151,4 +152,97 @@ test("a detail record with no lines still yields one editable line", () => {
   const draft = sageInvoiceDraftFromDetail({ customer: { id: "C-1" } });
   assert.equal(draft.lines.length, 1);
   assert.equal(draft.lines[0].txnAmount, "");
+});
+
+test("an entry line sends no isSubtotal at all", () => {
+  const payload = sageInvoicePayload(sampleDraft()) as any;
+  assert.equal("isSubtotal" in payload.lines[0], false);
+});
+
+test("a designated subtotal line sends isSubtotal", () => {
+  const draft = sampleDraft();
+  draft.lines.push({
+    ...draft.lines[0],
+    txnAmount: "78.00",
+    memo: "Sales Tax",
+    glAccountId: "33500",
+    accountLabelId: "Tax",
+    kind: "subtotal",
+  });
+
+  const payload = sageInvoicePayload(draft) as any;
+  assert.equal(payload.lines.length, 2);
+  assert.equal("isSubtotal" in payload.lines[0], false);
+  assert.equal(payload.lines[1].isSubtotal, "subtotal");
+  assert.deepEqual(payload.lines[1].glAccount, { id: "33500" });
+  assert.deepEqual(payload.lines[1].accountLabel, { id: "Tax" });
+});
+
+test("the tax designation is passed through distinctly from subtotal", () => {
+  const draft = sampleDraft();
+  draft.lines[0].kind = "tax";
+  const payload = sageInvoicePayload(draft) as any;
+  assert.equal(payload.lines[0].isSubtotal, "tax");
+});
+
+test("cloning from queried lines keeps the subtotal row the detail endpoint hides", () => {
+  // GET /invoice/24 returns ONLY the 1300.00 entry line...
+  const detail = {
+    invoiceNumber: "IN-1002",
+    customer: { id: "C-00005" },
+    invoiceDate: "2026-07-09",
+    dueDate: "2026-07-19",
+    state: "posted",
+    lines: [
+      {
+        txnAmount: "1300.00",
+        glAccount: { id: "50200" },
+        overrideOffsetGLAccount: { id: "12100" },
+        accountLabel: { id: "50200-Furniture Sales - Taxable" },
+        dimensions: { department: { id: "FURNITURE" }, location: { id: "20-PA" } },
+      },
+    ],
+  };
+
+  // ...while the invoice-line query returns both, with flat dotted keys.
+  const queried = [
+    {
+      key: "83",
+      lineNumber: 1,
+      txnAmount: "1300.00",
+      isSubtotal: null,
+      "glAccount.id": "50200",
+      "overrideOffsetGLAccount.id": "12100",
+      "accountLabel.id": "50200-Furniture Sales - Taxable",
+      "dimensions.department.id": "FURNITURE",
+      "dimensions.location.id": "20-PA",
+      "dimensions.project.id": "TEST",
+    },
+    {
+      key: "85",
+      lineNumber: 2,
+      txnAmount: "78.00",
+      isSubtotal: "subtotal",
+      "glAccount.id": "33500",
+      "overrideOffsetGLAccount.id": "12100",
+      "accountLabel.id": "Tax",
+      "dimensions.department.id": "FURNITURE",
+      "dimensions.location.id": "20-PA",
+      "dimensions.project.id": "TEST",
+    },
+  ];
+
+  const withQuery = sageInvoiceDraftFromDetail(detail, queried);
+  assert.equal(withQuery.lines.length, 2);
+  assert.equal(withQuery.lines[1].txnAmount, "78.00");
+  assert.equal(withQuery.lines[1].kind, "subtotal");
+  assert.equal(withQuery.lines[1].glAccountId, "33500");
+  assert.equal(withQuery.lines[1].accountLabelId, "Tax");
+  assert.equal(withQuery.lines[0].projectId, "TEST");
+  // Round-trip: cloning IN-1002 reproduces its 1378.00 total.
+  const total = withQuery.lines.reduce((s, l) => s + parseFloat(l.txnAmount), 0);
+  assert.equal(total.toFixed(2), "1378.00");
+
+  // Without the queried lines, the tax row is lost — the bug this guards against.
+  assert.equal(sageInvoiceDraftFromDetail(detail).lines.length, 1);
 });
