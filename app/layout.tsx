@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Nav from "./components/Nav";
+import UserMenu from "./components/UserMenu";
 
 export const metadata: Metadata = {
   title: "Innergy → Sage Intacct Exporter",
@@ -16,7 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Nav />
+        <Nav userSlot={<UserMenu />} />
         {children}
       </body>
     </html>

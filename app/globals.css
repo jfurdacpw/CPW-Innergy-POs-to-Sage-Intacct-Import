@@ -277,6 +277,41 @@ button.ghost {
   color: var(--text);
 }
 
+/* sign-in */
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.login-wrap {
+  display: flex;
+  justify-content: center;
+  padding-top: 80px;
+}
+
+.login-card {
+  max-width: 440px;
+  width: 100%;
+}
+
+.login-card h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.login-button {
+  width: 100%;
+  margin-top: 18px;
+  padding: 10px 14px;
+}
+
+.login-note {
+  margin: 12px 0 0;
+  text-align: center;
+}
+
 /* Sage API test page */
 .card {
   background: var(--surface);

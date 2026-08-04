@@ -12,6 +12,56 @@ files matching Sage Intacct import templates. Three tabs:
   generating a file. Read-only today (connection test + list AR invoices); the eventual
   goal is posting invoices straight into Sage.
 
+## Access control (Microsoft sign-in)
+
+The **whole app** requires a Microsoft (Entra ID / MS365) login — every page and every
+`/api/*` route. No Supabase and no database: Auth.js v5 puts a signed JWT in an httpOnly
+cookie, and Microsoft is the only identity provider.
+
+Access is restricted twice over:
+
+1. The Azure app registration is **single-tenant**, and `AUTH_MICROSOFT_ENTRA_ID_ISSUER`
+   points at the CPW tenant. Using `/common` there would let any Microsoft account in the
+   world reach step 2 — don't.
+2. `lib/authAllowlist.ts` lists the five addresses that may use the app. Anyone else is
+   rejected in the `signIn` callback, so they never receive a session cookie, and land on
+   `/login?error=AccessDenied` with an explanation.
+
+**To add or remove someone:** edit `ALLOWED_EMAILS` in `lib/authAllowlist.ts` and deploy.
+`middleware.ts` re-checks the list on every request, so a removal takes effect on that
+person's next request rather than whenever their existing session expires.
+`lib/authAllowlist.test.ts` covers case-insensitivity, blank input (fails closed), and
+near-miss addresses.
+
+Entra ID does **not** reliably populate the `email` claim — for many tenants the address
+arrives in `preferred_username`. `emailFromEntraProfile()` checks `email`,
+`preferred_username`, `upn`, then `unique_name`, and a profile with none of them yields
+`""`, which fails the allowlist. That's safe, but if *everyone* is suddenly locked out,
+this is the first thing to look at.
+
+### Azure app registration
+
+1. Azure Portal → **App registrations** → **New registration**. Single tenant
+   ("Accounts in this organizational directory only").
+2. **Authentication** → **Add a platform** → **Web**, and add **both** redirect URIs:
+   - `https://cpw-innergy-pos-to-sage-intacct.vercel.app/api/auth/callback/microsoft-entra-id`
+   - `http://localhost:3000/api/auth/callback/microsoft-entra-id` (without this, login
+     cannot be tested locally)
+3. **Certificates & secrets** → **New client secret** → copy the **Value** (shown once)
+   and note the expiry; login breaks when it lapses.
+4. From **Overview**, take the **Application (client) ID** and **Directory (tenant) ID**.
+
+Then set `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`,
+`AUTH_MICROSOFT_ENTRA_ID_ISSUER` (`https://login.microsoftonline.com/<TENANT_ID>/v2.0`), and
+`AUTH_SECRET` (`openssl rand -base64 32`) in `.env.local` and in the Vercel project env.
+The default scope requests `User.Read` so Auth.js can fetch the profile photo; a missing
+photo is handled and does not fail the login.
+
+> Note: the gate is **cookie-based**, which suits a browser-driven tool. If a cron job or
+> other unattended caller ever needs to hit these routes — e.g. once invoices post to Sage
+> automatically — it needs a separate machine-auth path (a shared secret header or a service
+> token); a session cookie won't do.
+
 ## Stack
 
 - Next.js (App Router, TypeScript), deployed on Vercel
@@ -30,6 +80,10 @@ npm run dev                    # http://localhost:3000
 
 | Var | Required | Notes |
 |-----|----------|-------|
+| `AUTH_SECRET` | yes | Signs the session cookie. `openssl rand -base64 32`. |
+| `AUTH_MICROSOFT_ENTRA_ID_ID` | yes | Azure Application (client) ID. |
+| `AUTH_MICROSOFT_ENTRA_ID_SECRET` | yes | Azure client secret **Value**. |
+| `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | yes | `https://login.microsoftonline.com/<TENANT_ID>/v2.0` — never `/common`. |
 | `INNERGY_API_KEY` | yes | Sent as the raw `Api-Key` header. Needs `Purchasing → PurchaseOrder → View`. |
 | `INNERGY_BASE_URL` | no | Defaults to `https://app.innergy.com`. |
 | `SAGE_ACCESS_TOKEN` | Sage tab | Hand-minted token (Postman). Lasts 12h — see below. |
@@ -246,25 +300,9 @@ authorization-code flow (or a Web Services user for client credentials) lands. W
 vars set, `/sage` loads and its two API routes return an error — the rest of the app is
 unaffected.
 
-> ### Access: the production URL is public (verified 2026-08-04)
+> Access is controlled by Microsoft sign-in — see the section below. Vercel's own deployment
+> protection cannot cover production on this plan (the API returns
+> `428 invalid_sso_protection`), which is why the gate lives in the app.
 >
-> The app has **no authentication of its own** — no middleware, no SSO, no Microsoft/Entra login.
-> The only gate is Vercel deployment protection, and it is set to *all except custom domains*,
-> which **excludes the production alias**. Measured, not assumed:
->
-> | URL | State |
-> |---|---|
-> | `cpw-innergy-pos-to-sage-intacct.vercel.app` (production) | public, HTTP 200, no auth |
-> | preview deployments | 302 → `vercel.com/sso-api` |
->
-> So `GET /api/invoices` and `/api/purchase-orders` on the production URL return live Innergy
-> data to anyone who has the link. Keep it internal, or add a real gate.
->
-> Note that the preview gate is **Vercel Authentication** (membership of the Vercel team), not
-> Microsoft SSO — a CPW employee with an M365 account but no Vercel account cannot get in.
->
-> The Sage vars are deliberately set on **Preview + Development only**, so the pasted Sage token
-> sits behind that gate and `/api/sage/*` errors out on the public production URL. Adding
-> `SAGE_ACCESS_TOKEN` to Production would expose Sage AR data publicly until a gate exists.
->
-> API keys themselves are never exposed — Innergy and Sage credentials are used server-side only.
+> API keys are never exposed to the browser — Innergy and Sage credentials are used
+> server-side only.

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { ReactNode } from "react";
 
 const TABS = [
   { href: "/", label: "Bills (AP)" },
@@ -9,8 +10,13 @@ const TABS = [
   { href: "/sage", label: "Sage API (test)" },
 ];
 
-export default function Nav() {
+/** `userSlot` is the server-rendered signed-in indicator (see UserMenu). */
+export default function Nav({ userSlot }: { userSlot?: ReactNode }) {
   const pathname = usePathname();
+
+  // No tab bar on the login page — there is nothing signed-in to navigate yet.
+  if (pathname === "/login") return null;
+
   return (
     <nav className="tabnav">
       <div className="tabnav-inner">
@@ -29,6 +35,7 @@ export default function Nav() {
             );
           })}
         </div>
+        {userSlot}
       </div>
     </nav>
   );
