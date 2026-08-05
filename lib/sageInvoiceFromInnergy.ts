@@ -134,10 +134,11 @@ function revenueLine(inv: NormalizedInvoice): SageInvoiceLineDraft {
  * The sales-tax line. Mirrors `buildTaxRow()`: 33500, memo "Sales Tax", same
  * project/location as the revenue line.
  *
- * `kind` is `"tax"` only while {@link AR_SALES_TAX_ACCT_LABEL} is blank — that
- * designation is what strips a (subtotal) label and what makes the dialog warn about
- * the override. Once a non-subtotal 33500 label exists this becomes a plain entry
- * line carrying that label, and the override disappears.
+ * Always a plain **entry** line, never a designated subtotal/tax row. A real
+ * Subtotals-grid row is not creatable through this API (see SageLineKind), the .csv
+ * export gave up on the same thing in July, and the GL effect is identical either
+ * way — so the Innergy path does not attempt it. The `kind` designation still exists
+ * in the dialog for hand-entered invoices and stays faithful on read.
  */
 function taxLine(inv: NormalizedInvoice, tax: number): SageInvoiceLineDraft {
   const label = AR_SALES_TAX_ACCT_LABEL;
@@ -159,7 +160,7 @@ function taxLine(inv: NormalizedInvoice, tax: number): SageInvoiceLineDraft {
     departmentId: "",
     locationId: AR_LOCATION_ID,
     projectId: resolveProjectId(inv),
-    kind: label ? "" : "tax",
+    kind: "",
   };
 }
 

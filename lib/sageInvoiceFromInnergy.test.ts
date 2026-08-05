@@ -148,8 +148,10 @@ test("the tax line names 33500 and is flagged as blocked", () => {
 
   // While no non-subtotal 33500 label exists the line must name the account, which
   // is the GL override Sage refuses — the UI has to warn instead of surprising us.
+  // Always a plain entry line — the Innergy path never attempts a Subtotals row.
+  assert.equal(tax.kind, "");
+
   if (!AR_SALES_TAX_ACCT_LABEL) {
-    assert.equal(tax.kind, "tax");
     assert.equal(innergyInvoiceTaxIsBlocked(inv), true);
     assert.equal(draftNeedsAccountOverride(draft), true);
     // A designated line drops its label; the amount must survive regardless.
@@ -158,9 +160,8 @@ test("the tax line names 33500 and is flagged as blocked", () => {
     assert.equal(payload.lines[1].txnAmount, "184.20");
     assert.equal(payload.lines[1].glAccount.id, AR_SALES_TAX_ACCT_NO);
   } else {
-    // Once the label exists the line is an ordinary entry line and derives both
-    // accounts from it, so nothing needs an override any more.
-    assert.equal(tax.kind, "");
+    // Once the label exists the line derives its account from it, so nothing needs
+    // an override any more.
     assert.equal(innergyInvoiceTaxIsBlocked(inv), false);
     assert.equal(draftNeedsAccountOverride(draft), false);
   }
