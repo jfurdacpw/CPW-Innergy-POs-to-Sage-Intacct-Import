@@ -163,11 +163,21 @@ test("the API draft and the .csv rows agree on every shared value", () => {
   // Same number of lines, same amounts, same accounts/dimensions per line — the
   // two transports must never disagree about what the invoice IS.
   assert.equal(rows.length, draft.lines.length);
-  const COL = { ACCT_NO: 19, LOCATION_ID: 21, AMOUNT: 24, PROJECT: 40 };
+  const COL = {
+    ACCT_NO: 19,
+    ACCT_LABEL: 20,
+    LOCATION_ID: 21,
+    DEPT_ID: 22,
+    AMOUNT: 24,
+    PROJECT: 40,
+  };
   rows.forEach((row, i) => {
     assert.equal(row[COL.AMOUNT], draft.lines[i].txnAmount);
     assert.equal(row[COL.ACCT_NO], draft.lines[i].glAccountId);
+    assert.equal(row[COL.ACCT_LABEL], draft.lines[i].accountLabelId);
     assert.equal(row[COL.LOCATION_ID], draft.lines[i].locationId);
+    // The tax row leaves DEPT_ID blank on both paths — see taxLine().
+    assert.equal(row[COL.DEPT_ID], draft.lines[i].departmentId);
     assert.equal(row[COL.PROJECT], draft.lines[i].projectId);
   });
   assert.equal(rows[0][2], draft.invoiceNumber);

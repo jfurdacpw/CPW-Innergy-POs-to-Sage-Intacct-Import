@@ -133,7 +133,13 @@ function taxLine(inv: NormalizedInvoice, tax: number): SageInvoiceLineDraft {
     glAccountId: AR_SALES_TAX_ACCT_NO,
     offsetGLAccountId: AR_CONTROL_ACCT_NO,
     accountLabelId: label,
-    departmentId: AR_DEPT_ID,
+    // No department, matching buildTaxRow(): the .csv tax row sets LOCATION_ID and
+    // the project but leaves DEPT_ID blank, and that exact combination is the one
+    // confirmed to post correct dollars (tag ar-import-confirmed-2026-07-20). Sales
+    // tax is a liability, not a departmental cost, so this is right on its own terms
+    // too — but the reason to keep it identical is that the two paths must not
+    // produce different GL detail from one invoice.
+    departmentId: "",
     locationId: AR_LOCATION_ID,
     projectId: resolveProjectId(inv),
     kind: label ? "" : "tax",

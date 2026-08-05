@@ -66,19 +66,21 @@ export default function InvoicesPage() {
   }, []);
 
   /**
-   * Seed the entity picker from the server's SAGE_ENTITY_ID so it can't diverge
-   * from what the Sage tab defaults to. A failure here is ignored on purpose —
-   * an expired Sage token must not put an error on the .csv workflow, which
-   * doesn't touch Sage at all.
+   * Seed the entity picker from the server's SAGE_ENTITY_ID, resolving null the same
+   * way the Sage tab does (blank = top level) so the two pages can't send the same
+   * invoice to different entities.
+   *
+   * `?config=1` reads env only — no token, no Sage call. This page's main workflow is
+   * a .csv download, so it must not pay a Sage round-trip (or surface a token error)
+   * just to fill a picker. A failure is ignored and the default stands.
    */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/sage/status");
+        const res = await fetch("/api/sage/status?config=1");
         const body = await res.json();
-        const seeded = body?.config?.defaultEntityId;
-        if (!cancelled && typeof seeded === "string") setEntity(seeded);
+        if (!cancelled) setEntity(body?.config?.defaultEntityId ?? "");
       } catch {
         /* keep the default */
       }
@@ -187,7 +189,12 @@ export default function InvoicesPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((inv) => (
+              {filtered.map((inv) => {
+                // The API route is refused for taxed invoices, so on those rows the
+                // .csv stays the primary action — otherwise the emphasised button is
+                // the one that can't work. See innergyInvoiceTaxIsBlocked.
+                const blocked = innergyInvoiceTaxIsBlocked(inv);
+                return (
                 <tr key={inv.id}>
                   <td>{inv.invoiceNumber || "—"}</td>
                   <td>{inv.customerName || "—"}</td>
@@ -204,19 +211,27 @@ export default function InvoicesPage() {
                   <td>
                     <div className="head-actions">
                       <button
-                        className="primary"
+                        className={blocked ? "ghost" : "primary"}
                         onClick={() => openPost(inv)}
-                        title="Push this invoice into Sage through the API"
+                        title={
+                          blocked
+                            ? "Taxed invoices are refused by the API until a non-subtotal 33500 account label exists in Sage"
+                            : "Push this invoice into Sage through the API"
+                        }
                       >
                         Post to Sage
                       </button>
-                      <button className="ghost" onClick={() => openExport(inv)}>
+                      <button
+                        className={blocked ? "primary" : "ghost"}
+                        onClick={() => openExport(inv)}
+                      >
                         Export .csv
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

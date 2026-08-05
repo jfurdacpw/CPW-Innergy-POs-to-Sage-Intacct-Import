@@ -298,6 +298,11 @@ real WS user from that placeholder. With no `@`, the app falls back to `SAGE_ACC
 4. Set `SAGE_WS_USER=<userId>@ciderpresswoodworks-imp` in `.env.local` and the Vercel env.
    `SAGE_ACCESS_TOKEN` can then be deleted — a stale value is ignored once the `@` is there.
 
+**Order matters: steps 1–3 before step 4.** The `@` switches the app over immediately, so setting
+the env var before the Authorized Client Applications pairing exists takes the Sage tab down —
+including reads that work today — until the pairing is added. That's deliberate (a silent fallback
+to the pasted token would hide a misconfiguration), but it means the env var goes last.
+
 Verify with the Sage tab: **Auth mode** reads "Client credentials" and **Token expires** shows a
 real timestamp (a pasted token has no known expiry, so it shows "unknown"). While the app is
 still on a pasted token the tab says so, with these steps inline.
