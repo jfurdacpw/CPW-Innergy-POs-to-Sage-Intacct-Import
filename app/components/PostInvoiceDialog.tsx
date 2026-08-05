@@ -215,7 +215,7 @@ export default function PostInvoiceDialog({
                 setField("state", e.target.value as SageInvoiceDraft["state"])
               }
             >
-              <option value="posted">posted (hits the GL)</option>
+              <option value="posted">posted (Sage default — state omitted)</option>
               <option value="draft">draft (deletable)</option>
             </select>
           </Field>

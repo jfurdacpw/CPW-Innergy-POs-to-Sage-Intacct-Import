@@ -351,9 +351,16 @@ then creates it.
 
 - **The invoice number is cleared on a clone**, because Sage rejects a duplicate. Blank means
   Sage assigns the next number.
-- **State defaults to `posted`**, which hits the GL exactly as a CSV import does. The dialog
-  offers `draft` as the alternative (deletable, no GL impact). `state` is the current field for
-  this; the `action` field (`submit`/`draft`) is deprecated in the object model.
+- **`state` is writable only as `"draft"`.** Verified live (2026-08-05) — sending `"posted"`,
+  the value the object model lists and a read returns, is a 400:
+  ```
+  Payload contains errors | invalidParameter — Not a valid state
+                          — "State must be draft or not included in the request."
+  ```
+  So "posted" is expressed by **omitting the field** and letting Sage apply its own default,
+  which is what a .csv import with a blank `ACTION` does. `sageInvoicePayload()` does that
+  translation; the dialog's State picker still reads posted/draft. `state` is the current field
+  either way — the `action` field (`submit`/`draft`) is deprecated in the object model.
 - The dialog can show **the exact JSON that will be sent** before sending. Both the preview and
   the server-side request come from `sageInvoicePayload()` in `lib/sageInvoiceDraft.ts`, so they
   cannot drift apart. That module is free of `server-only` imports for this reason.

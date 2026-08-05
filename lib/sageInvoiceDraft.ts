@@ -65,7 +65,19 @@ export type SageInvoiceDraft = {
   dueDate: string;
   description: string;
   referenceNumber: string;
-  /** "posted" (Sage's default) hits the GL; "draft" can be deleted cleanly. */
+  /**
+   * "posted" hits the GL; "draft" can be deleted cleanly.
+   *
+   * **`state` is only writable as `"draft"`.** Sending `"posted"` — the value the
+   * object model lists and the one a read returns — is rejected on create:
+   *
+   *   400 Payload contains errors | invalidParameter — Not a valid state —
+   *   "State must be draft or not included in the request."
+   *
+   * So "posted" is expressed by **omitting the field**, letting Sage apply its own
+   * default (the same thing a .csv import with a blank ACTION does). See
+   * sageInvoicePayload().
+   */
   state: "posted" | "draft";
   lines: SageInvoiceLineDraft[];
 };
@@ -210,7 +222,11 @@ export function sageInvoicePayload(
     dueDate: str(draft.dueDate),
     description: str(draft.description) || undefined,
     referenceNumber: str(draft.referenceNumber) || undefined,
-    state: draft.state,
+    // Only "draft" may be sent. "posted" is Sage's own default and naming it is a
+    // 400: "State must be draft or not included in the request." (verified live,
+    // 2026-08-05). Omitting the field is therefore how a posted invoice is asked
+    // for — exactly what a .csv import with a blank ACTION does.
+    state: draft.state === "draft" ? "draft" : undefined,
     lines: draft.lines.map((line) => {
       // Naming a GL account directly IS a GL account override, and Sage refuses it
       // without the config/permission for it:

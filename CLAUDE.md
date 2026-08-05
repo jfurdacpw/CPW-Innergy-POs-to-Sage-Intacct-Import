@@ -66,6 +66,9 @@ which is why this beats the authorization-code flow in an app with no database.
 - **Blank ref ids are rejected** — omit `{ "id": "" }` entirely.
 - Use `GET /services/core/model?name=<object>` to confirm field names instead of guessing. It
   reports `readOnly`, which is how the `isSubtotal` dead end was identified.
+- **`state` accepts only `"draft"` on create.** `"posted"` — what the model lists and a read
+  returns — is a 400: *"State must be draft or not included in the request."* Posted means
+  omitting the field. A writable-looking enum value is not necessarily writable *on create*.
 
 ## Auth and secrets
 

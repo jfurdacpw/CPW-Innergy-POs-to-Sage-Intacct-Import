@@ -35,12 +35,21 @@ function sampleDraft(): SageInvoiceDraft {
   };
 }
 
+test("state is sent only as draft — posted means omitting the field", () => {
+  // Live 400 on create: "Not a valid state — State must be draft or not included
+  // in the request." Sending the value a read returns is rejected.
+  const posted = sageInvoicePayload(sampleDraft()) as any;
+  assert.equal("state" in posted, false);
+
+  const draft = sageInvoicePayload({ ...sampleDraft(), state: "draft" }) as any;
+  assert.equal(draft.state, "draft");
+});
+
 test("payload nests refs and dimensions the way Sage expects", () => {
   const payload = sageInvoicePayload(sampleDraft()) as any;
 
   assert.deepEqual(payload.customer, { id: "C-00005" });
   assert.equal(payload.invoiceDate, "2026-07-20");
-  assert.equal(payload.state, "posted");
 
   const line = payload.lines[0];
   assert.equal(line.txnAmount, "3070.02");
