@@ -180,15 +180,19 @@ Mapped columns:
 | AMOUNT (revenue line) | `InvoicePreTaxAmount` (pre-tax) |
 | LINE_NO | `1` revenue line, `2` tax line |
 | MEMO | `Innergy Export` (revenue), `Sales Tax` (tax line) |
-| ARINVOICEITEM_ARACCOUNT | `12100` — AR control account (`AR_CONTROL_ACCT_NO`) |
+| ARINVOICEITEM_ARACCOUNT | **blank** — see below |
 | ACCT_NO | **blank** revenue (`AR_REVENUE_ACCT_NO`); `33500` on the tax line |
 
 `TERM_NAME`, `ACTION`, and all rev-rec / subtotal columns export blank (no Innergy
 equivalent; `ACTION` blank → Sage defaults to Submit). The two AR GL accounts live in
 `lib/arColumns.ts` and are deliberately **not** shared with the AP side:
 
-- `ARINVOICEITEM_ARACCOUNT = "12100"` — the Accounts Receivable control account (the debit),
-  confirmed from RKL's manual example (invoice IN-1002).
+- `ARINVOICEITEM_ARACCOUNT` — **exported blank, and always has been.** The column is in
+  `AR_HEADERS` but has no entry in `COL`, so no exporter ever wrote to it; Sage derives the AR
+  control account (12100, per RKL's IN-1002) from the customer. Worth knowing because naming it
+  is an *override*: the API path sent it as `overrideOffsetGLAccount` and drew the
+  "allow AP or AR account override" 422 partly for that reason. An earlier version of this file
+  claimed the column was populated — it was not.
 - `AR_REVENUE_ACCT_NO = "50200"` (Furniture Sales) with label
   `50200-Furniture Sales - Taxable`. It must never be the AP account (32000). 50200 assumes
   Furniture; the Millwork counterpart is still unresolved, which is the same open question as
@@ -227,7 +231,7 @@ location, both fallbacks — so the two transports can never disagree about what
 | MEMO / DESCRIPTION | `description`, `lines[].memo` |
 | AMOUNT | `lines[].txnAmount` |
 | ACCT_LABEL / ACCT_NO | `lines[].accountLabelId` / `glAccountId` |
-| ARINVOICEITEM_ARACCOUNT | `lines[].offsetGLAccountId` |
+| ARINVOICEITEM_ARACCOUNT | `lines[].offsetGLAccountId` — blank on both paths |
 | DEPT_ID / LOCATION_ID | `lines[].departmentId` / `locationId` |
 | ARINVOICEITEM_PROJECTID | `lines[].projectId` |
 | TOTAL_DUE | none — Sage sums the lines |
@@ -372,7 +376,7 @@ Payload shape, verified against invoice 40 (a real CSV import) and the object mo
 | customer | `customer: { id }` |
 | line amount / memo | `lines[].txnAmount`, `lines[].memo` — the only plain writable line fields |
 | GL account | `lines[].glAccount: { id }` |
-| AR control account | `lines[].overrideOffsetGLAccount: { id }` (12100) — same as CSV `ARINVOICEITEM_ARACCOUNT` |
+| AR control account | `lines[].overrideOffsetGLAccount: { id }` — editable, but **not sent** by the Innergy path: the .csv leaves `ARINVOICEITEM_ARACCOUNT` blank too, and an offset override is one of the two permissions the 422 asks for |
 | account label | `lines[].accountLabel: { id }` e.g. `50200-Furniture Sales - Taxable` |
 | dept / location / project | `lines[].dimensions.{department,location,project}: { id }` |
 

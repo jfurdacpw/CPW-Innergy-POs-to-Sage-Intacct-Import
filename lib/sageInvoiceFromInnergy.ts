@@ -44,7 +44,20 @@ import {
 import { EXPORT_MEMO } from "./sageColumns";
 import type { SageInvoiceDraft, SageInvoiceLineDraft } from "./sageInvoiceDraft";
 
-/** The AR control account (the debit) — `ARINVOICEITEM_ARACCOUNT` on the .csv side. */
+/**
+ * The AR control account (the debit) — Sage's `overrideOffsetGLAccount`, and the
+ * `ARINVOICEITEM_ARACCOUNT` column on the .csv side.
+ *
+ * **Deliberately not sent.** `ARINVOICEITEM_ARACCOUNT` is present in `AR_HEADERS`
+ * but has no entry in that module's `COL` map, so the confirmed-working .csv export
+ * has never populated it — Sage derives the AR account from the customer on its own.
+ * The field name says what sending it is: an offset **override**, which is exactly
+ * the "allow AP or AR account override" permission Sage's 422 asks for. Matching the
+ * .csv means naming at most one account per line rather than two.
+ *
+ * Kept as a named constant because it is the right value if an override ever is
+ * permitted, and because it documents which account the .csv column refers to.
+ */
 export const AR_CONTROL_ACCT_NO = "12100";
 
 /**
@@ -103,11 +116,12 @@ function revenueLine(inv: NormalizedInvoice): SageInvoiceLineDraft {
   return {
     txnAmount: amountString(revenueAmount(inv)),
     memo: EXPORT_MEMO,
-    // With a label present the payload builder omits both accounts (the label
-    // already implies them) and no GL override is requested. They are carried here
-    // anyway so they show in the dialog and still post if the label is cleared.
+    // With a label present the payload builder omits the account entirely (the
+    // label already implies it) and no GL override is requested. It is carried here
+    // anyway so it shows in the dialog and still posts if the label is cleared.
     glAccountId: AR_REVENUE_ACCT_NO,
-    offsetGLAccountId: AR_CONTROL_ACCT_NO,
+    // No AR offset — see AR_CONTROL_ACCT_NO.
+    offsetGLAccountId: "",
     accountLabelId: label,
     departmentId: AR_DEPT_ID,
     locationId: AR_LOCATION_ID,
@@ -131,7 +145,10 @@ function taxLine(inv: NormalizedInvoice, tax: number): SageInvoiceLineDraft {
     txnAmount: amountString(tax),
     memo: "Sales Tax",
     glAccountId: AR_SALES_TAX_ACCT_NO,
-    offsetGLAccountId: AR_CONTROL_ACCT_NO,
+    // No AR offset — see AR_CONTROL_ACCT_NO. This line is the one that needs the
+    // GL-account permission at all, so it must ask for as little as possible: one
+    // account (33500), which is precisely what the .csv tax row carries.
+    offsetGLAccountId: "",
     accountLabelId: label,
     // No department, matching buildTaxRow(): the .csv tax row sets LOCATION_ID and
     // the project but leaves DEPT_ID blank, and that exact combination is the one

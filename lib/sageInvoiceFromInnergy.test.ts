@@ -123,14 +123,28 @@ test("the revenue line is label-derived, so it asks for no GL override", () => {
   assert.equal(payload.lines[0].overrideOffsetGLAccount, undefined);
 });
 
-test("the tax line names 33500 + 12100 and is flagged as blocked", () => {
+test("no line sends the AR offset account — the .csv never has", () => {
+  // ARINVOICEITEM_ARACCOUNT is in AR_HEADERS but absent from arColumns' COL map,
+  // so the working .csv export leaves it blank and Sage derives AR from the
+  // customer. Sending it is an offset OVERRIDE, one of the two things the 422 asks
+  // permission for — so the API path must not ask for it either.
+  assert.equal(AR_CONTROL_ACCT_NO, "12100");
+  for (const line of sageDraftFromInnergyInvoice(taxedInvoice()).lines) {
+    assert.equal(line.offsetGLAccountId, "");
+  }
+  const payload = sageInvoicePayload(sageDraftFromInnergyInvoice(taxedInvoice())) as any;
+  for (const line of payload.lines) {
+    assert.equal("overrideOffsetGLAccount" in line, false);
+  }
+});
+
+test("the tax line names 33500 and is flagged as blocked", () => {
   const inv = taxedInvoice();
   const draft = sageDraftFromInnergyInvoice(inv);
   const tax = draft.lines[1];
 
   assert.equal(tax.memo, "Sales Tax");
   assert.equal(tax.glAccountId, AR_SALES_TAX_ACCT_NO);
-  assert.equal(tax.offsetGLAccountId, AR_CONTROL_ACCT_NO);
 
   // While no non-subtotal 33500 label exists the line must name the account, which
   // is the GL override Sage refuses — the UI has to warn instead of surprising us.
