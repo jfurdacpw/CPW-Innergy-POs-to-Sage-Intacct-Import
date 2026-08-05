@@ -4,10 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import type { NormalizedInvoice } from "@/lib/arColumns";
 import {
   defaultInvoiceBatchTitle,
-  AR_REVENUE_ACCT_NO,
   FALLBACK_CUSTOMER_ID,
 } from "@/lib/arColumns";
 import { downloadInvoiceExport } from "@/lib/exportInvoice";
+import type { SageInvoiceDraft } from "@/lib/sageInvoiceDraft";
+import {
+  innergyInvoiceTaxIsBlocked,
+  sageDraftFromInnergyInvoice,
+} from "@/lib/sageInvoiceFromInnergy";
+import { SAGE_ENTITY_CHOICES } from "@/lib/sageEntities";
+import PostInvoiceDialog from "@/app/components/PostInvoiceDialog";
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -25,6 +31,20 @@ export default function InvoicesPage() {
   );
   const [batchTitle, setBatchTitle] = useState("");
 
+  /** Which Sage sub-entity a Post to Sage lands in. Seeded from SAGE_ENTITY_ID. */
+  const [entity, setEntity] = useState("20");
+
+  /** Open post dialog: the draft plus the invoice it came from. null = closed. */
+  const [post, setPost] = useState<{
+    draft: SageInvoiceDraft;
+    invoice: NormalizedInvoice;
+  } | null>(null);
+  const [posted, setPosted] = useState<{
+    key: string;
+    id: string;
+    invoiceNumber: string;
+  } | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -38,6 +58,29 @@ export default function InvoicesPage() {
           setError(e instanceof Error ? e.message : "Failed to load.");
       } finally {
         if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Seed the entity picker from the server's SAGE_ENTITY_ID so it can't diverge
+   * from what the Sage tab defaults to. A failure here is ignored on purpose —
+   * an expired Sage token must not put an error on the .csv workflow, which
+   * doesn't touch Sage at all.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/sage/status");
+        const body = await res.json();
+        const seeded = body?.config?.defaultEntityId;
+        if (!cancelled && typeof seeded === "string") setEntity(seeded);
+      } catch {
+        /* keep the default */
       }
     })();
     return () => {
@@ -73,11 +116,25 @@ export default function InvoicesPage() {
     setExportTarget(null);
   }
 
+  /**
+   * Open the Sage post dialog with this Innergy invoice mapped to a draft — the
+   * same fields the .csv would carry, as JSON. Every field stays editable and the
+   * dialog can show the exact payload before it sends.
+   */
+  function openPost(inv: NormalizedInvoice) {
+    setPosted(null);
+    setPost({ draft: sageDraftFromInnergyInvoice(inv), invoice: inv });
+  }
+
   return (
     <div className="container">
       <header className="page-header">
         <h1>Invoices → Sage Intacct AR Invoice</h1>
-        <p>Export an Innergy invoice to the Sage Intacct AR Invoice import format.</p>
+        <p>
+          Send an Innergy invoice to Sage Intacct — either straight through the
+          API (<strong>Post to Sage</strong>) or as a .csv import file for the
+          AR Invoice template.
+        </p>
       </header>
 
       <div className="toolbar">
@@ -87,9 +144,27 @@ export default function InvoicesPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <label className="inline-field">
+          Sage entity
+          <select value={entity} onChange={(e) => setEntity(e.target.value)}>
+            {SAGE_ENTITY_CHOICES.map((e) => (
+              <option key={e.value} value={e.value}>
+                {e.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      {posted && (
+        <div className="notice success">
+          Sent {posted.invoiceNumber} to Sage — invoice{" "}
+          <strong>{posted.id}</strong> (record key {posted.key}) in entity{" "}
+          {entity || "top level"}. Check it on the Sage tab.
+        </div>
+      )}
 
       {loading ? (
         <div className="state">Loading invoices…</div>
@@ -107,6 +182,7 @@ export default function InvoicesPage() {
                 <th>Due</th>
                 <th>Status</th>
                 <th className="num">Amount</th>
+                <th className="num">Tax</th>
                 <th></th>
               </tr>
             </thead>
@@ -122,10 +198,22 @@ export default function InvoicesPage() {
                   <td className="num">
                     {currency.format(inv.invoiceAmount || 0)}
                   </td>
+                  <td className="num">
+                    {inv.salesTax ? currency.format(inv.salesTax) : "—"}
+                  </td>
                   <td>
-                    <button className="primary" onClick={() => openExport(inv)}>
-                      Export
-                    </button>
+                    <div className="head-actions">
+                      <button
+                        className="primary"
+                        onClick={() => openPost(inv)}
+                        title="Push this invoice into Sage through the API"
+                      >
+                        Post to Sage
+                      </button>
+                      <button className="ghost" onClick={() => openExport(inv)}>
+                        Export .csv
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -157,14 +245,6 @@ export default function InvoicesPage() {
               </div>
             )}
 
-            {!AR_REVENUE_ACCT_NO && (
-              <div className="error">
-                Heads up: the revenue account (ACCT_NO) is still blank pending the
-                5,200-series furniture/millwork decision. Fill it in the exported
-                file (or set it in <code>lib/arColumns.ts</code>) before importing.
-              </div>
-            )}
-
             <div className="field">
               <label htmlFor="batchTitle">Batch title</label>
               <input
@@ -193,6 +273,58 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
+
+      {post && (
+        <PostInvoiceDialog
+          initialDraft={post.draft}
+          entity={entity}
+          sourceLabel={`Innergy invoice ${post.invoice.invoiceNumber}`}
+          notices={postNotices(post.invoice)}
+          onClose={() => setPost(null)}
+          onPosted={(result) => {
+            setPost(null);
+            setPosted({ ...result, invoiceNumber: post.invoice.invoiceNumber });
+          }}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * Warnings specific to pushing an *Innergy* invoice (the dialog raises its own
+ * about subtotal rows and GL overrides).
+ */
+function postNotices(inv: NormalizedInvoice): React.ReactNode[] {
+  const notices: React.ReactNode[] = [];
+
+  if (!inv.customerExternalId) {
+    notices.push(
+      <>
+        <strong>Fallback customer.</strong> {inv.customerName || "This customer"}{" "}
+        has no External Id in Innergy, so the customer is{" "}
+        <code>{FALLBACK_CUSTOMER_ID}</code> and the project falls back with it.
+        That is why this defaults to <strong>draft</strong> rather than posted —
+        set the Sage customer ID on their External Id field in Innergy to send the
+        real one.
+      </>
+    );
+  }
+
+  if (innergyInvoiceTaxIsBlocked(inv)) {
+    notices.push(
+      <>
+        <strong>Taxed invoice — expect a refusal.</strong> The{" "}
+        {currency.format(inv.salesTax ?? 0)} tax line has to name account 33500
+        directly, because every tax account label in this company is a{" "}
+        <em>subtotal</em> label and those are rejected on line items (
+        <code>AR-0148</code>). Naming the account instead is a GL override, which
+        the API refuses (<code>AR-0279</code>) even though the .csv import does it
+        happily. Until a non-subtotal <code>33500</code> label exists in Sage, use
+        Export .csv for taxed invoices.
+      </>
+    );
+  }
+
+  return notices;
 }

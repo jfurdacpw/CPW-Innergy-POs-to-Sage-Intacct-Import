@@ -1,16 +1,15 @@
 # CPW Innergy → Sage Intacct Exporter
 
-Internal web app that lists records pulled live from Innergy and exports them to `.xlsx`
-files matching Sage Intacct import templates. Three tabs:
+Internal web app that lists records pulled live from Innergy and gets them into Sage
+Intacct — either as a `.csv` import file or straight through the REST API. Three tabs:
 
 - **Bills (AP)** — `/` — exports a **reconciled** purchase order to the **AP Bill** template
   (`Accounts Payable bills.xls`). One PO = one bill line.
-- **Invoices (AR)** — `/invoices` — exports an invoice to the **AR Invoice** template
-  (`Accounts Receivable invoices (Innergy Field Mapping).xls`). One invoice = one line;
-  no status gate (any invoice can be exported).
-- **Sage API (test)** — `/sage` — talks to the Sage Intacct REST API directly instead of
-  generating a file. Read-only today (connection test + list AR invoices); the eventual
-  goal is posting invoices straight into Sage.
+- **Invoices (AR)** — `/invoices` — two routes for the same invoice: **Post to Sage** sends it
+  through the API, **Export .csv** writes the **AR Invoice** template
+  (`Accounts Receivable invoices (Innergy Field Mapping).xls`). No status gate.
+- **Sage API (test)** — `/sage` — the API workbench: connection test, list AR invoices out of
+  Sage, and clone or hand-enter one.
 
 ## Access control (Microsoft sign-in)
 
@@ -86,10 +85,10 @@ npm run dev                    # http://localhost:3000
 | `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | yes | `https://login.microsoftonline.com/<TENANT_ID>/v2.0` — never `/common`. |
 | `INNERGY_API_KEY` | yes | Sent as the raw `Api-Key` header. Needs `Purchasing → PurchaseOrder → View`. |
 | `INNERGY_BASE_URL` | no | Defaults to `https://app.innergy.com`. |
-| `SAGE_ACCESS_TOKEN` | Sage tab | Hand-minted token (Postman). Lasts 12h — see below. |
-| `SAGE_CLIENT_ID` | client creds | From the Sage App Registry entry for this app. |
-| `SAGE_CLIENT_SECRET` | client creds | Never leaves the server. |
-| `SAGE_WS_USER` | client creds | `userId@companyId`, e.g. `someUser@ciderpresswoodworks-imp`. |
+| `SAGE_CLIENT_ID` | Sage tab | From the Sage App Registry entry for this app. |
+| `SAGE_CLIENT_SECRET` | Sage tab | Never leaves the server. |
+| `SAGE_WS_USER` | Sage tab | `userId@companyId`, e.g. `someUser@ciderpresswoodworks-imp`. **The `@` switches the app to self-minted tokens** — see below. |
+| `SAGE_ACCESS_TOKEN` | fallback | Hand-minted token (Postman), used only while `SAGE_WS_USER` has no `@`. Lasts 12h. |
 | `SAGE_ENTITY_ID` | no | Default sub-entity (10/20/30); the tab overrides per request. |
 | `SAGE_BASE_URL` | no | Defaults to `https://api.intacct.com/ia/api/v1`. |
 
@@ -190,10 +189,10 @@ equivalent; `ACTION` blank → Sage defaults to Submit). The two AR GL accounts 
 
 - `ARINVOICEITEM_ARACCOUNT = "12100"` — the Accounts Receivable control account (the debit),
   confirmed from RKL's manual example (invoice IN-1002).
-- `ACCT_NO` (the revenue credit) is **left blank on purpose.** It must never be the AP account
-  (32000). The real value is a 5,200-series revenue account (e.g. 50200 Furniture Sales vs a
-  Millwork account) that depends on the unresolved furniture/millwork split — set
-  `AR_REVENUE_ACCT_NO` once that's decided. The export dialog warns while it's blank.
+- `AR_REVENUE_ACCT_NO = "50200"` (Furniture Sales) with label
+  `50200-Furniture Sales - Taxable`. It must never be the AP account (32000). 50200 assumes
+  Furniture; the Millwork counterpart is still unresolved, which is the same open question as
+  `DEPT_ID`.
 
 **Sales tax:** taxable invoices export **two lines** — a pre-tax revenue line (line 1) and a
 sales-tax line (line 2, `AMOUNT = InvoiceSalesTax`) posting to `AR_SALES_TAX_ACCT_NO` (`33500`,
@@ -206,10 +205,55 @@ import, and confirm `33500` applies to all entities.
 `LOCATION_ID` (entity/facility, e.g. `20-PA`), and `ARINVOICEITEM_PROJECTID` (Sage project IDs).
 See the field-mapping reference for the full picture.
 
+### Post to Sage: the same invoice, through the API
+
+**Post to Sage** on each row is the direct-API twin of Export .csv. `lib/sageInvoiceFromInnergy.ts`
+maps a `NormalizedInvoice` into the `SageInvoiceDraft` the API path already uses, then the shared
+post dialog (`app/components/PostInvoiceDialog.tsx` — the same one the Sage tab uses for clones)
+opens with every field editable and the exact JSON viewable before sending.
+
+The mapper reads the **same constants as `lib/arColumns.ts`** — accounts, labels, department,
+location, both fallbacks — so the two transports can never disagree about what the invoice is.
+`lib/sageInvoiceFromInnergy.test.ts` asserts that directly: it builds both the draft and the
+`.csv` rows from one invoice and compares amounts, accounts, location and project line by line.
+
+| `.csv` column | draft field |
+|---|---|
+| INVOICE_NO | `invoiceNumber` |
+| CUSTOMER_ID | `customerId` |
+| CREATED_DATE | `invoiceDate` |
+| DUE_DATE | `dueDate` |
+| PO_NO (work order numbers) | `referenceNumber` |
+| MEMO / DESCRIPTION | `description`, `lines[].memo` |
+| AMOUNT | `lines[].txnAmount` |
+| ACCT_LABEL / ACCT_NO | `lines[].accountLabelId` / `glAccountId` |
+| ARINVOICEITEM_ARACCOUNT | `lines[].offsetGLAccountId` |
+| DEPT_ID / LOCATION_ID | `lines[].departmentId` / `locationId` |
+| ARINVOICEITEM_PROJECTID | `lines[].projectId` |
+| TOTAL_DUE | none — Sage sums the lines |
+| BATCH_TITLE | none — batches are a `.csv` concept |
+
+Two deliberate differences from the file path:
+
+- **State defaults to `draft`, not `posted`.** Every Innergy customer's `ExternalIdentifier` is
+  still null, so `customerId` falls back to `C-00005` (and the project to `TEST` with it).
+  Posting that to the GL is worse than downloading a file someone reads first. The dialog says so
+  and offers `posted`.
+- **Taxed invoices are still blocked** — see the GL-override section below. Every live Innergy
+  invoice is taxed (checked 2026-08-05: 1 of 1, `INV-26-100000`, tax 184.20), so until a
+  non-subtotal `33500` label exists in Sage this path only covers untaxed invoices and the
+  dialog warns before the POST instead of surfacing `AR-0148` after it. `Export .csv` is the
+  route for taxed invoices in the meantime. When the label is created, put its exact id in
+  `AR_SALES_TAX_ACCT_LABEL` (`lib/sageInvoiceFromInnergy.ts`) — the tax line then becomes
+  label-derived like the revenue line and the block lifts with no other change.
+
+The `.csv` path is **not** going away while that's true.
+
 ## Sage API (test) tab
 
-`/sage` is the direct-API path that will eventually replace the file exports. Today it is
-**read-only**: nothing on this tab writes to Sage.
+`/sage` is the API workbench: prove the connection, read what's in Sage, and clone or hand-enter
+an invoice. Pushing an *Innergy* invoice lives on the Invoices tab (above); this tab is where the
+API behaviour gets verified.
 
 - `GET /api/sage/status` — proves auth works and returns only the auth mode, token expiry (if
   known), and which company/entity we are pointed at. **The access token is never returned to
@@ -228,28 +272,39 @@ entity 30, 0 in entity 10 — all currently the app's own CSV imports (`descript
 `ia::error.details[]` text (not truncated), since that text is what makes a failure
 diagnosable.
 
-### Auth: pasted token today, two real options later
+### Auth: client credentials, with a pasted token as the fallback
 
-The registered app in the Sage App Registry uses the **user-facing authorization-code
-workflow** (a Vercel URL is its redirect URI), and no Web Services user exists yet — so
-`client_credentials` cannot mint a token: it fails with
-`"The username format is invalid (expected user@company)"`, and there is no user to name.
+`lib/sage.ts` picks its mode from the env, and **client credentials wins whenever it is
+configured** — the app mints its own 12h tokens and re-mints a minute before expiry, so nothing
+expires from under it and there is no token to store anywhere. That last part is why this beats
+the authorization-code flow: this app has no database, and a rotating refresh token would need
+one (with concurrent serverless refreshes racing to clobber it).
 
-So `SAGE_ACCESS_TOKEN` is the current mode: mint a token by hand (the Sage Postman collection,
-logging in against `ciderpresswoodworks-imp`) and paste it in. **Tokens live 12 hours**; when
-one expires the app says so explicitly instead of retrying a mint that can't work. Client
-credentials stays implemented as the second mode, used whenever `SAGE_ACCESS_TOKEN` is blank.
+The switch is `SAGE_WS_USER` containing an `@`. A bare company id (which is all this var held
+before a Web Services user existed) is rejected by Sage with
+`"The username format is invalid (expected user@company)"`, so the `@` is what distinguishes a
+real WS user from that placeholder. With no `@`, the app falls back to `SAGE_ACCESS_TOKEN`.
 
-To get off hand-pasted tokens, pick one:
+**One-time setup in Sage** (this is the whole fix for the daily re-pasting):
 
-- **Authorization-code flow** (matches the app as registered) — add `/api/sage/auth/start` +
-  `/callback`, a "Connect to Intacct" button, and token storage. Needs the exact redirect URI
-  from the developer portal, plus a localhost one registered for dev.
-- **Client credentials** (no browser login, required for unattended posting) — create a Web
-  Services user (Company → Admin → Web Services Users), then pair the `client_id` with that
-  user ID under Company → Setup → Company → Edit → Security → **Authorized Client
-  Applications** (case-sensitive). Lindsey (RKL) flagged this as the eventual way to get
-  fine-grained permissions.
+1. Company → Admin → **Web Services Users** → Add. Note the user id exactly — it is
+   case-sensitive.
+2. Give that user a role that can **create** AR invoices, not just view them. A permission-poor
+   WS user mints a token perfectly happily and then fails on the actual call, which is why
+   `checkSageConnection()` always follows the mint with a real object-model request rather than
+   reporting success on the mint alone.
+3. Company → Setup → Company → Edit → Security → **Authorized Client Applications** → Add:
+   the `client_id` plus that user id.
+4. Set `SAGE_WS_USER=<userId>@ciderpresswoodworks-imp` in `.env.local` and the Vercel env.
+   `SAGE_ACCESS_TOKEN` can then be deleted — a stale value is ignored once the `@` is there.
+
+Verify with the Sage tab: **Auth mode** reads "Client credentials" and **Token expires** shows a
+real timestamp (a pasted token has no known expiry, so it shows "unknown"). While the app is
+still on a pasted token the tab says so, with these steps inline.
+
+A token request that fails almost always means step 3 was skipped, the user id case is wrong, or
+the `@companyId` half is missing — the thrown error names all three. Lindsey (RKL) flagged the
+Web Services user as the eventual way to get fine-grained permissions anyway.
 
 ### Query service conventions (verified live against the imp company, 2026-08)
 
@@ -411,9 +466,10 @@ through the API and taxed ones do not.
 > been created through this path yet — the first real Clone → Post is the test. Expect the
 > response to surface any field Sage disagrees with verbatim, including `ia::error.details[]`.
 
-> Security: the app has **no authentication** and is on a public Vercel URL. Read-only Sage
-> calls are the same risk class as the existing Innergy proxy, but before the POST path lands,
-> an unauthenticated route that writes into Sage needs a gate in front of it.
+> Security: every route that writes to Sage sits behind the Microsoft sign-in gate described at
+> the top of this file — `middleware.ts` re-checks `lib/authAllowlist.ts` per request, so
+> `POST /api/sage/invoices` is unreachable without a session cookie. A future unattended caller
+> (a cron that posts invoices) needs its own machine-auth path; a cookie won't do.
 
 ## Deploy to Vercel
 
@@ -433,10 +489,10 @@ through the API and taxed ones do not.
 `/api/auth/signin/microsoft-entra-id` redirects to the CPW tenant with the correct client id
 and production callback.
 
-`SAGE_ACCESS_TOKEN` is set on Production, Preview and Development, so the Sage tab works on
-the live URL — but **a pasted token dies every 12 hours**, so expect the tab to start erroring
-until a fresh token is pasted into Vercel. That's the cost of the interim auth mode; the
-authorization-code flow (or a Web Services user for client credentials) is what removes it.
+`SAGE_ACCESS_TOKEN` is set on Production, Preview and Development. **A pasted token dies every 12
+hours**, so while that is the active mode expect the Sage tab to start erroring until a fresh one
+is pasted into Vercel. Setting `SAGE_WS_USER` to a Web Services user (`userId@companyId`) on all
+three environments is what ends that — see the auth section above.
 
 > Access is controlled by Microsoft sign-in — see the section below. Vercel's own deployment
 > protection cannot cover production on this plan (the API returns

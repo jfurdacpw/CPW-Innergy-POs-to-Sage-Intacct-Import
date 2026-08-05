@@ -22,6 +22,7 @@ export default function PostInvoiceDialog({
   initialDraft,
   entity,
   sourceLabel,
+  notices,
   onClose,
   onPosted,
 }: {
@@ -29,6 +30,12 @@ export default function PostInvoiceDialog({
   entity: string;
   /** e.g. "clone of INV-26-100002" — shown in the heading. */
   sourceLabel: string;
+  /**
+   * Extra warnings from whoever built the draft (e.g. the Innergy path flagging a
+   * fallback customer). The dialog's own notices — subtotal rows, GL override —
+   * are derived from the draft and always shown.
+   */
+  notices?: React.ReactNode[];
   onClose: () => void;
   onPosted: (result: { key: string; id: string }) => void;
 }) {
@@ -150,6 +157,12 @@ export default function PostInvoiceDialog({
         {error && errorDetails ? (
           <pre className="raw">{JSON.stringify(errorDetails, null, 2)}</pre>
         ) : null}
+
+        {notices?.map((notice, i) => (
+          <div className="notice" key={i}>
+            {notice}
+          </div>
+        ))}
 
         <div className="grid-2">
           <Field label="Invoice number">

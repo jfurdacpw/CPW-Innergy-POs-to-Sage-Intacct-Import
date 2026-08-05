@@ -201,8 +201,12 @@ export interface BuildInvoiceRowOptions {
   exportDate?: Date;
 }
 
-/** Pre-tax revenue amount for the revenue line (falls back if Innergy omits it). */
-function revenueAmount(inv: NormalizedInvoice): number {
+/**
+ * Pre-tax revenue amount for the revenue line (falls back if Innergy omits it).
+ * Exported because the direct-API path (lib/sageInvoiceFromInnergy.ts) must split
+ * revenue from tax exactly as the .csv does.
+ */
+export function revenueAmount(inv: NormalizedInvoice): number {
   if (inv.preTaxAmount && inv.preTaxAmount > 0) return inv.preTaxAmount;
   const derived = inv.invoiceAmount - (inv.salesTax ?? 0);
   return derived > 0 ? derived : inv.invoiceAmount;
@@ -218,7 +222,7 @@ function revenueAmount(inv: NormalizedInvoice): number {
  * confirmed via email 2026-07-20 that Sage drops the tax line entirely
  * unless every line carries a populated Project.
  */
-function resolveProjectId(inv: NormalizedInvoice): string {
+export function resolveProjectId(inv: NormalizedInvoice): string {
   return inv.customerExternalId
     ? inv.projectNumber || ""
     : FALLBACK_PROJECT_NUMBER;

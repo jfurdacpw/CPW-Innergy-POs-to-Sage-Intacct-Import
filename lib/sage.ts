@@ -5,15 +5,21 @@
  * never be imported into a client component — only from route handlers under
  * app/api. Access tokens never leave the server.
  *
- * Auth, two modes:
- *  1. SAGE_ACCESS_TOKEN set — use that token as-is. This is the current setup: our
- *     registered app uses the user-facing authorization-code workflow, so the token
- *     is minted by hand (Postman) and pasted in. Intacct tokens last 12h, so this
- *     needs re-pasting; the browser-login flow replaces it.
- *  2. Otherwise, client credentials: POST /oauth2/token with client_id +
- *     client_secret + username ("wsUser@companyId"), cached in module memory and
- *     re-minted a minute before expiry. Needs a Web Services user, which does not
- *     exist yet.
+ * Auth, two modes. **Client credentials wins whenever it is configured** — it mints
+ * its own tokens, so nothing expires from under the app and no secret has to be
+ * stored anywhere:
+ *
+ *  1. Client credentials: POST /oauth2/token with client_id + client_secret +
+ *     username ("wsUser@companyId"), cached in module memory and re-minted a minute
+ *     before expiry. Requires a Web Services user in Sage (Company → Admin → Web
+ *     Services Users) paired with the client id under Company → Setup → Company →
+ *     Edit → Security → Authorized Client Applications. Detected by SAGE_WS_USER
+ *     containing an "@": a bare company id is rejected by Sage with "The username
+ *     format is invalid (expected user@company)".
+ *  2. SAGE_ACCESS_TOKEN — a token minted by hand (Postman) and pasted in. The
+ *     fallback used before the Web Services user existed. Intacct tokens last 12h,
+ *     so it has to be re-pasted daily; that chore is the whole reason mode 1 exists.
+ *     Once mode 1 works this var can be deleted (a stale value is simply ignored).
  *
  * Which Sage company you hit is decided by the companyId (implementation company is
  * `ciderpresswoodworks-imp`), not by the base URL.
@@ -29,18 +35,34 @@ const BASE_URL = (
   process.env.SAGE_BASE_URL || "https://api.intacct.com/ia/api/v1"
 ).replace(/\/$/, "");
 
-/** Hand-pasted access token (see mode 1 above). Empty string when unset. */
-const STATIC_TOKEN = (process.env.SAGE_ACCESS_TOKEN || "").trim();
+/** Hand-pasted access token (mode 2). Empty string when unset. */
+function staticToken(): string {
+  return (process.env.SAGE_ACCESS_TOKEN || "").trim();
+}
+
+/**
+ * Whether mode 1 (client credentials) is usable. The username must be the full
+ * `userId@companyId` form of a Web Services user — SAGE_WS_USER historically held a
+ * bare company id, which Sage rejects, so the "@" is what distinguishes a real WS
+ * user from that placeholder.
+ */
+function useClientCredentials(): boolean {
+  return Boolean(
+    (process.env.SAGE_CLIENT_ID || "").trim() &&
+      (process.env.SAGE_CLIENT_SECRET || "").trim() &&
+      (process.env.SAGE_WS_USER || "").includes("@")
+  );
+}
 
 /** Default sub-entity when a request doesn't name one. Blank = top level. */
 const DEFAULT_ENTITY_ID = (process.env.SAGE_ENTITY_ID || "").trim();
 
 /**
- * Entities that may be targeted per request. "" is the top level (all entities,
- * which the query service returns when includePrivate is true).
+ * Entities that may be targeted per request. The list lives in a browser-safe
+ * module so the UI picker and this validation share one source.
  */
-export const SAGE_ENTITY_OPTIONS = ["", "10", "20", "30"] as const;
-export type SageEntity = (typeof SAGE_ENTITY_OPTIONS)[number];
+import { SAGE_ENTITY_OPTIONS } from "./sageEntities";
+export { SAGE_ENTITY_OPTIONS, type SageEntity } from "./sageEntities";
 
 /**
  * Header that scopes a request to one entity. Verified live (2026-08): this name
@@ -86,16 +108,14 @@ export function sageConfigSummary() {
   // id (which is all we have while running on a pasted token).
   const [left, right] = user.includes("@") ? user.split("@") : ["", user];
   const [companyId] = (right || "").split("|");
-  const authMode = STATIC_TOKEN ? "pasted-token" : "client-credentials";
+  const clientCreds = useClientCredentials();
   return {
     baseUrl: BASE_URL,
-    authMode,
+    authMode: clientCreds ? "client-credentials" : "pasted-token",
     userId: left || "",
     companyId: companyId || "",
     defaultEntityId: DEFAULT_ENTITY_ID || null,
-    configured: STATIC_TOKEN
-      ? true
-      : Boolean(process.env.SAGE_CLIENT_ID && process.env.SAGE_CLIENT_SECRET && user),
+    configured: clientCreds || Boolean(staticToken()),
   };
 }
 
@@ -109,12 +129,24 @@ const TOKEN_SKEW_MS = 60 * 1000;
 type Token = { token: string; expiresAt: number | null };
 
 /**
- * Get an access token: the pasted one if SAGE_ACCESS_TOKEN is set, otherwise mint
- * (or reuse) one via client credentials. A pasted token has no known expiry — it
- * simply starts returning 401 once its 12h is up.
+ * Get an access token: minted via client credentials when a Web Services user is
+ * configured (and cached until a minute before it expires), otherwise the pasted
+ * one. A pasted token has no known expiry — it simply starts returning 401 once its
+ * 12h is up.
  */
 async function getToken(force = false): Promise<Token> {
-  if (STATIC_TOKEN) return { token: STATIC_TOKEN, expiresAt: null };
+  if (!useClientCredentials()) {
+    const pasted = staticToken();
+    if (!pasted) {
+      throw new SageError(
+        "Sage auth is not configured. Either set SAGE_WS_USER to a Web Services " +
+          "user (userId@companyId) alongside SAGE_CLIENT_ID/SAGE_CLIENT_SECRET, or " +
+          "paste a token into SAGE_ACCESS_TOKEN.",
+        500
+      );
+    }
+    return { token: pasted, expiresAt: null };
+  }
 
   if (!force && tokenCache && Date.now() < tokenCache.expiresAt - TOKEN_SKEW_MS) {
     return tokenCache;
@@ -134,8 +166,14 @@ async function getToken(force = false): Promise<Token> {
 
   const text = await res.text();
   if (!res.ok) {
+    // Nearly always one of three things: the Web Services user is not paired with
+    // this client id under Security → Authorized Client Applications, the user id
+    // case is wrong, or SAGE_WS_USER is missing the @companyId half.
     throw new SageError(
-      `Sage token request failed (${res.status}): ${describeError(text)}`,
+      `Sage token request failed (${res.status}): ${describeError(text)} ` +
+        "— check that SAGE_WS_USER is the exact (case-sensitive) Web Services user " +
+        "id plus @companyId, and that it is paired with SAGE_CLIENT_ID under " +
+        "Company → Setup → Company → Edit → Security → Authorized Client Applications.",
       res.status,
       safeJson(text)
     );
@@ -161,8 +199,12 @@ async function getToken(force = false): Promise<Token> {
 
 /**
  * Verify auth works. Returns only non-secret facts — never the token itself,
- * which must not reach the browser. A pasted token is proved by an actual API
- * call (there is nothing to mint), so this hits the cheap object-model endpoint.
+ * which must not reach the browser.
+ *
+ * The object-model probe runs in **both** auth modes on purpose. A successful mint
+ * proves the credentials, not the access: a Web Services user with no AR role mints
+ * a token happily and then returns nothing, so minting alone would report a healthy
+ * connection for a user that cannot read an invoice.
  */
 export async function checkSageConnection(): Promise<{
   ok: true;
@@ -170,9 +212,7 @@ export async function checkSageConnection(): Promise<{
   config: ReturnType<typeof sageConfigSummary>;
 }> {
   const { expiresAt } = await getToken();
-  if (STATIC_TOKEN) {
-    await sageFetch("/services/core/model?name=accounts-receivable%2Finvoice");
-  }
+  await sageFetch("/services/core/model?name=accounts-receivable%2Finvoice");
   return {
     ok: true,
     expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
@@ -256,10 +296,11 @@ async function sageFetch<T>(path: string, init: SageRequest = {}): Promise<T> {
   // A stale cached token (revoked, or expired early) reads as a 401 — re-mint once.
   // A pasted token can't be re-minted, so say so instead of retrying pointlessly.
   if (res.status === 401) {
-    if (STATIC_TOKEN) {
+    if (!useClientCredentials()) {
       throw new SageError(
         "Sage rejected the access token (401). SAGE_ACCESS_TOKEN is likely past its 12h " +
-          "life — mint a fresh one and update .env.local.",
+          "life — mint a fresh one and update .env.local, or set SAGE_WS_USER to a Web " +
+          "Services user (userId@companyId) so tokens are minted automatically.",
         401
       );
     }

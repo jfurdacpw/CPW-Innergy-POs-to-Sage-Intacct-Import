@@ -6,7 +6,8 @@ import {
   blankSageInvoiceDraft,
   type SageInvoiceDraft,
 } from "@/lib/sageInvoiceDraft";
-import PostInvoiceDialog from "./PostInvoiceDialog";
+import { SAGE_ENTITY_CHOICES } from "@/lib/sageEntities";
+import PostInvoiceDialog from "@/app/components/PostInvoiceDialog";
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -27,14 +28,6 @@ type Status = {
     configured: boolean;
   };
 };
-
-/** Entity choices: top level plus the three sub-entities. */
-const ENTITIES = [
-  { value: "", label: "Top level (all entities)" },
-  { value: "10", label: "10" },
-  { value: "20", label: "20" },
-  { value: "30", label: "30" },
-];
 
 /** Dates come back as YYYY-MM-DD (or ISO) — show them as-is minus any time part. */
 function shortDate(value: string): string {
@@ -168,8 +161,9 @@ export default function SagePage() {
         <h1>Sage Intacct API (test)</h1>
         <p>
           Talks to the Sage Intacct REST API directly instead of generating a
-          .csv. Read-only for now: verify the connection, then list AR invoices
-          out of Sage. Posting invoices comes later.
+          .csv: verify the connection, list AR invoices out of Sage, and clone or
+          hand-enter one. To push an <em>Innergy</em> invoice straight into Sage,
+          use Post to Sage on the Invoices tab.
         </p>
       </header>
 
@@ -226,6 +220,20 @@ export default function SagePage() {
               </div>
             </div>
 
+            {status.config?.authMode === "pasted-token" && (
+              <div className="notice">
+                <strong>Still on a hand-pasted token</strong>, which dies every 12
+                hours. To stop re-pasting it: create a Web Services user in Sage
+                (Company → Admin → Web Services Users), give it a role that can
+                create AR invoices, pair its user id with{" "}
+                <code>SAGE_CLIENT_ID</code> under Company → Setup → Company → Edit →
+                Security → Authorized Client Applications, then set{" "}
+                <code>SAGE_WS_USER</code> to <code>userId@companyId</code>. This app
+                mints its own tokens from that point on and{" "}
+                <code>SAGE_ACCESS_TOKEN</code> can be deleted.
+              </div>
+            )}
+
             {!status.ok && (
               <>
                 <div className="error">{status.error}</div>
@@ -251,7 +259,7 @@ export default function SagePage() {
                 onChange={(e) => setEntity(e.target.value)}
                 disabled={loading}
               >
-                {ENTITIES.map((e) => (
+                {SAGE_ENTITY_CHOICES.map((e) => (
                   <option key={e.value} value={e.value}>
                     {e.label}
                   </option>
