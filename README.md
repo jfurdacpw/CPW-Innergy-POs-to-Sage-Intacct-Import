@@ -174,6 +174,12 @@ Four things worth knowing:
   included in the request"* — and the reference says state cannot be PATCHed either. If the
   submit fails the create is **not** rolled back or hidden: the response carries the bill key
   plus `submitted: false` and the reason, because a draft nobody has the key for is worse.
+  **What that leaves the bill in is unconfirmed.** The workflow table puts `submit` at
+  `submitted`, one more step (`approve`) short of `posted` — but a `.csv` import with
+  `ACTION = Submit` lands at `posted` directly when this company has no AP approval workflow
+  configured. If it does, the API path needs the approve call too, or a bill sent through the
+  API parks in a queue while the same bill sent as a file hits the GL. Reading the `state` of a
+  bill the `.csv` importer already created answers it in one query.
 - **`DUE_DATE` stays blank on purpose.** The `.csv` leaves the column empty and lets Sage compute
   the date from `TERM_NAME`; filling it with the created date would quietly turn Net 30 into
   due-on-receipt and change the aging. The REST reference lists `dueDate` as required, so if a
@@ -191,10 +197,17 @@ Four things worth knowing:
 
 **Not verified live.** No bill has been created through the API yet; the pasted
 `SAGE_ACCESS_TOKEN` was expired and `SAGE_WS_USER` is still a bare company id, so even the
-read-only probes (`GET /services/core/model?name=accounts-payable/bill-line`, and a query of the
-lines on a `.csv`-imported bill) could not run. Those two reads are the cheap first step — they
-confirm whether `accountLabel` is writable on a bill line and what dimension id formats real
-imported bills carry, the same trick CLAUDE.md prescribes for invoice 40.
+read-only probes could not run. Four things a single read-only probe settles — the bill-line
+object model plus a query of one `.csv`-imported bill and its lines:
+
+1. Is `accountLabel` writable on a bill line? (the escape hatch if `glAccount` is refused)
+2. What `state` did the `.csv` importer's own bills end in — `submitted` or `posted`? That is
+   what decides whether create + submit is real parity with `ACTION = Submit`.
+3. Do those bills' lines carry `location` / `department` dimension ids, and in what format?
+4. May `dueDate` be omitted when `term.id` is present?
+
+The probe script is in the session scratchpad (`probeBills.mjs`) — same trick CLAUDE.md
+prescribes for invoice 40.
 
 ## Innergy response notes (verified live, 2026-07)
 

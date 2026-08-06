@@ -749,7 +749,15 @@ export async function createSageBill(
     raw: response,
   };
 
-  if (draft.action !== "submit" || !key) return result;
+  if (draft.action !== "submit") return result;
+  if (!key) {
+    // The bill exists but Sage returned no key, so the submit cannot be addressed.
+    // Say that rather than letting the UI report a deliberate draft.
+    result.submitError =
+      "Sage returned no record key for the new bill, so the submit step was skipped. " +
+      "Find the bill in Sage and submit it there.";
+    return result;
+  }
 
   try {
     const submitted = await sageFetch<any>(

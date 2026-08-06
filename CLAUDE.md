@@ -34,13 +34,23 @@ The next test is cloning invoice 40 (`INV-MKC-26-100002` — single labelled lin
 draft; that path needs no GL override and should be the first success.
 
 **AP bills via API (added 2026-08-06), unverified live.** `lib/sageBillDraft.ts` +
-`lib/sageBillFromInnergy.ts` + `app/api/sage/bills` + `PostBillDialog`. Three guesses in there
-that only a live call settles: whether `dueDate` may be omitted when `term.id` is present (the
-`.csv` leaves DUE_DATE blank and Sage derives it — the REST reference calls the field required),
-whether a bill line needs a `location` dimension (blank on the `.csv`), and whether naming
-`glAccount` draws the same override refusal AR gets. Cheapest first step is the read-only probe
-in the session scratchpad: `GET /services/core/model?name=accounts-payable/bill-line` plus a
-query of the lines on a bill the `.csv` importer already created.
+`lib/sageBillFromInnergy.ts` + `app/api/sage/bills` + `PostBillDialog`. **Four** guesses in there
+that only a live call settles:
+
+1. **End state.** `ACTION = Submit` is implemented as create + `POST /workflows/
+   accounts-payable/bill/submit`, which lands at `submitted`. A `.csv` import with the same
+   ACTION lands at `posted` when no AP approval workflow is configured — in which case the API
+   path also needs `/workflows/accounts-payable/bill/approve` or the two routes differ where it
+   matters. Read the `state` of a `.csv`-created bill to settle it.
+2. Whether `dueDate` may be omitted when `term.id` is present (the `.csv` leaves DUE_DATE blank
+   and Sage derives it — the REST reference calls the field required).
+3. Whether a bill line needs a `location` dimension (blank on the `.csv`).
+4. Whether naming `glAccount` draws the same override refusal AR gets.
+
+Cheapest first step is the read-only probe in the session scratchpad (`probeBills.mjs`):
+`GET /services/core/model?name=accounts-payable/bill-line` plus a query of a bill the `.csv`
+importer already created and its lines. It needs a hand-pasted token — `SAGE_WS_USER` is still
+the bare company id, so nothing self-mints yet.
 
 **Also unverified live:** whether the `.csv` dimension values (`20-PA`, `FURNITURE`, project
 `TEST`) are the ids the REST API wants. Read them back off invoice 40's lines with
