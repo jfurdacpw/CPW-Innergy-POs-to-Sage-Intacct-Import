@@ -28,3 +28,6 @@ next-env.d.ts
 
 # vercel
 .vercel
+
+# Claude Code local worktrees / scratch
+.claude/
