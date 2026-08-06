@@ -9,26 +9,38 @@ what's operational: current state, live blockers, and traps that cost time.
 Next.js (App Router, TS) on Vercel. Lists records pulled live from Innergy and gets them into
 Sage Intacct. Four things exist:
 
-- `/` **Bills (AP)** — reconciled PO → AP Bill `.csv` (52-column contract, `lib/sageColumns.ts`)
+- `/` **Bills (AP)** — reconciled PO, two routes: **Post to Sage** (API, via
+  `lib/sageBillFromInnergy.ts`) and **Export .csv** (52-column contract, `lib/sageColumns.ts`)
 - `/invoices` **Invoices (AR)** — one invoice, two routes: **Post to Sage** (API, via
   `lib/sageInvoiceFromInnergy.ts`) and **Export .csv** (45-column, `lib/arColumns.ts`)
 - `/sage` **Sage API (test)** — the API workbench: connection check, list invoices, clone/post
 - `/login` — Microsoft sign-in gating everything above.
 
-Both invoice routes read the same constants out of `lib/arColumns.ts`, so they can't disagree
-about accounts, dimensions or fallbacks. The `.csv` path stays until taxed invoices can post.
+Each pair of routes reads one set of constants — invoices from `lib/arColumns.ts`, bills from
+`lib/sageColumns.ts` — so the two transports can't disagree about accounts, dimensions or
+fallbacks. The `.csv` path stays until taxed invoices can post.
 
-## Current state (2026-08-05)
+## Current state (2026-08-06)
 
 **Working:** Microsoft auth on production; Sage connection + invoice listing per entity
 (top level / 10 / 20 / 30); clone dialog prefilled from any existing invoice, including
-subtotal rows; Innergy invoice → Sage draft mapper + Post to Sage button (unit tested against
-the `.csv` rows, not yet exercised live).
+subtotal rows; Innergy invoice → Sage draft mapper + Post to Sage button, and the AP twin
+(PO → bill draft + Post to Sage on `/`). Both mappers are unit tested against their `.csv`
+rows; neither has been exercised live.
 
-**Not yet done:** no invoice has been *successfully* created through the API. Three attempts,
-three different refusals, all now understood and documented in README. The next test is cloning
-invoice 40 (`INV-MKC-26-100002` — single labelled line, no tax) as a draft; that path needs no
-GL override and should be the first success.
+**Not yet done:** nothing has been *successfully* created through the API — no invoice, no bill.
+Three invoice attempts, three different refusals, all now understood and documented in README.
+The next test is cloning invoice 40 (`INV-MKC-26-100002` — single labelled line, no tax) as a
+draft; that path needs no GL override and should be the first success.
+
+**AP bills via API (added 2026-08-06), unverified live.** `lib/sageBillDraft.ts` +
+`lib/sageBillFromInnergy.ts` + `app/api/sage/bills` + `PostBillDialog`. Three guesses in there
+that only a live call settles: whether `dueDate` may be omitted when `term.id` is present (the
+`.csv` leaves DUE_DATE blank and Sage derives it — the REST reference calls the field required),
+whether a bill line needs a `location` dimension (blank on the `.csv`), and whether naming
+`glAccount` draws the same override refusal AR gets. Cheapest first step is the read-only probe
+in the session scratchpad: `GET /services/core/model?name=accounts-payable/bill-line` plus a
+query of the lines on a bill the `.csv` importer already created.
 
 **Also unverified live:** whether the `.csv` dimension values (`20-PA`, `FURNITURE`, project
 `TEST`) are the ids the REST API wants. Read them back off invoice 40's lines with

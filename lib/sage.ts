@@ -673,3 +673,96 @@ export async function createSageInvoice(
     raw: response,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Creating AP bills (the API twin of the AP Bill .csv export)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Draft shape, payload builder and validation live in lib/sageBillDraft.ts for the
+ * same reason the invoice ones live in their own module: the browser previews the
+ * exact JSON this module posts.
+ */
+export type { SageBillDraft, SageBillLineDraft } from "./sageBillDraft";
+export {
+  blankSageBillDraft,
+  sageBillPayload,
+  validateSageBillDraft,
+} from "./sageBillDraft";
+import {
+  sageBillPayload,
+  validateSageBillDraft,
+  type SageBillDraft,
+} from "./sageBillDraft";
+
+export type SageBillCreateResult = {
+  key: string;
+  id: string;
+  entity: string;
+  payload: Record<string, unknown>;
+  /** Whether the submit workflow ran and succeeded (the .csv's ACTION = Submit). */
+  submitted: boolean;
+  /** Why the submit failed, when the bill itself was created. */
+  submitError?: string;
+  /** State Sage reported after the submit call, when it ran. */
+  state?: string;
+  raw: unknown;
+};
+
+/**
+ * POST a new AP bill. **This writes to Sage.**
+ *
+ * Two calls when `draft.action` is `"submit"` — create, then
+ * `POST /workflows/accounts-payable/bill/submit` — because `state` is not writable on
+ * create (AR proved it: *"State must be draft or not included in the request."*) and
+ * the reference says state changes go through the workflow endpoints.
+ *
+ * A failed submit does **not** throw: the bill exists in Sage by then, so the key is
+ * returned with `submitted: false` and the reason. Throwing would orphan a draft
+ * nobody has the key for.
+ */
+export async function createSageBill(
+  draft: SageBillDraft,
+  entityInput?: string | null
+): Promise<SageBillCreateResult> {
+  const problems = validateSageBillDraft(draft);
+  if (problems.length) {
+    throw new SageError(problems.join(" "), 400);
+  }
+
+  const entity = resolveEntity(entityInput);
+  const payload = sageBillPayload(draft);
+  const response = await sageFetch<any>("/objects/accounts-payable/bill", {
+    method: "POST",
+    entity,
+    body: payload,
+  });
+
+  const created = resultList(response)[0] ?? {};
+  const key = str(created?.key);
+  const result: SageBillCreateResult = {
+    key,
+    id: str(created?.id),
+    entity,
+    payload,
+    submitted: false,
+    raw: response,
+  };
+
+  if (draft.action !== "submit" || !key) return result;
+
+  try {
+    const submitted = await sageFetch<any>(
+      "/workflows/accounts-payable/bill/submit",
+      { method: "POST", entity, body: { key } }
+    );
+    result.submitted = true;
+    result.state = str(resultList(submitted)[0]?.state) || "submitted";
+    result.raw = { create: response, submit: submitted };
+  } catch (err) {
+    result.submitError =
+      err instanceof Error ? err.message : "Submit workflow failed.";
+  }
+
+  return result;
+}

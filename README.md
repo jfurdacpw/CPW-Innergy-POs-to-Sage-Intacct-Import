@@ -3,8 +3,9 @@
 Internal web app that lists records pulled live from Innergy and gets them into Sage
 Intacct — either as a `.csv` import file or straight through the REST API. Three tabs:
 
-- **Bills (AP)** — `/` — exports a **reconciled** purchase order to the **AP Bill** template
-  (`Accounts Payable bills.xls`). One PO = one bill line.
+- **Bills (AP)** — `/` — two routes for the same **reconciled** purchase order: **Post to Sage**
+  sends it through the API, **Export .csv** writes the **AP Bill** template
+  (`Accounts Payable bills.xls`). One PO = one bill with one line.
 - **Invoices (AR)** — `/invoices` — two routes for the same invoice: **Post to Sage** sends it
   through the API, **Export .csv** writes the **AR Invoice** template
   (`Accounts Receivable invoices (Innergy Field Mapping).xls`). No status gate.
@@ -122,14 +123,78 @@ the header array ever drifts from the template. Mapped columns:
 | TERM_NAME | Payment terms |
 | LINE_NO | `1` |
 | MEMO | `Innergy Export` |
-| ACCT_NO | `32000` (see below) |
+| ACCT_NO | `60200` (see below) |
 | ACTION | `Submit` |
 
 All other columns are exported blank. The exported file contains **only the header row + data
 rows** (the template's `#` comment rows are omitted; Sage ignores them anyway).
 
-Tunable constants live at the top of `lib/sageColumns.ts`: `DEFAULT_ACCT_NO` (currently
-`32000`, flagged "will this change?" in the template), `EXPORT_MEMO`, `BILL_ACTION`.
+Tunable constants live at the top of `lib/sageColumns.ts`: `DEFAULT_ACCT_NO` (`60200` since
+commit `e046bba`; the template's row 2 had flagged the original `32000` as "Accounts Payable?
+Will this change?"), `EXPORT_MEMO`, `BILL_ACTION`. **The API path reads the same constants** —
+see below.
+
+### Post to Sage: the same PO, through the API
+
+**Post to Sage** on each row is the direct-API twin of Export .csv.
+`lib/sageBillFromInnergy.ts` maps a `NormalizedPurchaseOrder` into a `SageBillDraft`
+(`lib/sageBillDraft.ts`), and `app/components/PostBillDialog.tsx` opens with every field
+editable and the exact JSON viewable before sending. Both routes go through the same
+re-fetch-and-re-check-reconciled gate, so the API is not an easier way to send a PO the `.csv`
+would refuse.
+
+The mapper reads the **same constants as `lib/sageColumns.ts`** — `DEFAULT_ACCT_NO`,
+`EXPORT_MEMO`, `BILL_ACTION`, `FALLBACK_VENDOR_ID`, `stripPoPrefix` — so the two transports
+cannot disagree about what the bill is. `lib/sageBillFromInnergy.test.ts` asserts it by building
+both the draft and the `.csv` row from one PO and comparing them column by column.
+
+| `.csv` column | payload field |
+|---|---|
+| BILL_NO | `billNumber` (PO number, `PO-` stripped) |
+| PO_NO | `referenceNumber` |
+| VENDOR_ID | `vendor.id` |
+| CREATED_DATE | `createdDate` (`YYYY-MM-DD`, not `MM/DD/YYYY`) |
+| TERM_NAME | `term.id` |
+| AMOUNT | `lines[].txnAmount` |
+| MEMO | `lines[].memo` |
+| ACCT_NO | `lines[].glAccount.id` |
+| ACCT_LABEL | `lines[].accountLabel.id` (blank on both paths) |
+| DEPT_ID / LOCATION_ID | `lines[].dimensions.department` / `.location` (blank on both paths) |
+| ACTION `Submit` | a second call — see below |
+| DUE_DATE / POSTING_DATE / DESCRIPTION | blank on both paths, so **omitted** from the payload |
+| TOTAL_DUE | none — Sage sums the lines |
+| BATCH_TITLE | none — batches are a `.csv` concept |
+| PAYTO / RETURNTO | none — see below |
+
+Four things worth knowing:
+
+- **`ACTION = "Submit"` is a workflow call, not a field.** The bill is created (Sage's own
+  default state, `draft`), then `POST /workflows/accounts-payable/bill/submit` runs with its key.
+  `state` is not writable on create — the AR path proved that with *"State must be draft or not
+  included in the request"* — and the reference says state cannot be PATCHed either. If the
+  submit fails the create is **not** rolled back or hidden: the response carries the bill key
+  plus `submitted: false` and the reason, because a draft nobody has the key for is worse.
+- **`DUE_DATE` stays blank on purpose.** The `.csv` leaves the column empty and lets Sage compute
+  the date from `TERM_NAME`; filling it with the created date would quietly turn Net 30 into
+  due-on-receipt and change the aging. The REST reference lists `dueDate` as required, so if a
+  create is rejected for a missing due date, the dialog's field is where one gets typed — the
+  omission has not been exercised live yet.
+- **`PAYTO` / `RETURNTO` are not sent.** The columns take a contact *name*
+  (`VendorContactName`); `contacts.payTo` wants a ref to a contact record *id*. Different values,
+  and a blank ref is rejected outright, so no `contacts` block is sent and Sage uses the vendor's
+  own contact.
+- **The line names its GL account, and that is normal here.** `glAccount` is required on an AP
+  bill line, unlike an AR invoice line where naming an account is an override. If a bill does
+  draw the GL-override refusal anyway — its wording covers *"AP or AR account override"* — the
+  escape is the same as AR's: put a non-subtotal account label id in `AP_EXPENSE_ACCT_LABEL`
+  (`lib/sageBillFromInnergy.ts`) and the account drops out of the payload.
+
+**Not verified live.** No bill has been created through the API yet; the pasted
+`SAGE_ACCESS_TOKEN` was expired and `SAGE_WS_USER` is still a bare company id, so even the
+read-only probes (`GET /services/core/model?name=accounts-payable/bill-line`, and a query of the
+lines on a `.csv`-imported bill) could not run. Those two reads are the cheap first step — they
+confirm whether `accountLabel` is writable on a bill line and what dimension id formats real
+imported bills carry, the same trick CLAUDE.md prescribes for invoice 40.
 
 ## Innergy response notes (verified live, 2026-07)
 
@@ -194,7 +259,7 @@ equivalent; `ACTION` blank → Sage defaults to Submit). The two AR GL accounts 
   "allow AP or AR account override" 422 partly for that reason. An earlier version of this file
   claimed the column was populated — it was not.
 - `AR_REVENUE_ACCT_NO = "50200"` (Furniture Sales) with label
-  `50200-Furniture Sales - Taxable`. It must never be the AP account (32000). 50200 assumes
+  `50200-Furniture Sales - Taxable`. It must never be the AP expense account (60200). 50200 assumes
   Furniture; the Millwork counterpart is still unresolved, which is the same open question as
   `DEPT_ID`.
 
